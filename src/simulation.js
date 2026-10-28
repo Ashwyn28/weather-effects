@@ -35,8 +35,8 @@ export function createSimulation({ seed = 0 } = {}) {
   function splash(hit, particle) {
     impacts.push({ x: hit.x, y: hit.y, angle: hit.angle, life: 1 });
     if (impacts.length > 160) impacts.shift();
-    for (let i = 0; i < 2; i++) {
-      droplets.push({ x: hit.x, y: hit.y - 1, vx: (i - .5) * (30 + random() * 30) + particle.vx * .12,
+    for (let i = 0; i < 3; i++) {
+      droplets.push({ x: hit.x, y: hit.y - 1, vx: (i - 1) * (30 + random() * 35) + particle.vx * .12,
         vy: -30 - random() * 65, size: .7 + random() * .6, life: 1 });
     }
     if (droplets.length > 240) droplets.splice(0, droplets.length - 240);
@@ -93,7 +93,7 @@ export function createSimulation({ seed = 0 } = {}) {
         if (hit) {
           if (snowy) settleSnow(deposits, hit, p.size);
           // Distant drops land too small to see a splash.
-          else if (p.depth > .35 || condition === 'hail') splash(hit, p);
+          else if (p.depth > .2 || condition === 'hail') splash(hit, p);
           if (condition === 'hail') { p.x = hit.x; p.y = hit.y - 2; p.vy = -90; p.vx *= -.4; p.bounced = true; }
           else { particles[i] = spawn(); continue; }
         }

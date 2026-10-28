@@ -137,8 +137,8 @@ export function createThreeRenderer(canvas, THREE, { pixelRatio, onLost, onResto
       batches.forEach(mesh => { mesh.count = 0; });
       const lightStreaks = lightRain || dark;
       drops.material.uniforms.color.value.set(lightStreaks ? '#dfe8f2' : '#566b7b');
-      splashes.material.uniforms.color.value.set(lightStreaks ? '#c9dce4' : '#62798a');
-      beads.material.uniforms.color.value.set(lightStreaks ? '#dcecf6' : '#7a92a4');
+      splashes.material.uniforms.color.value.set(lightStreaks ? '#d6e6ee' : '#4f6b80');
+      beads.material.uniforms.color.value.set(lightStreaks ? '#e2eff7' : '#58758a');
       flakes.material.uniforms.color.value.set(dark || lightRain ? '#f6f9fb' : '#ffffff');
       flakes.material.uniforms.color2.value.set(dark || lightRain ? '#c3d0db' : '#7c8fa1');
       trails.material.uniforms.color.value.set(dark ? '#9fb2bf' : '#8a9ca8');
@@ -178,8 +178,9 @@ export function createThreeRenderer(canvas, THREE, { pixelRatio, onLost, onResto
         instance(drops, p.x - Math.sin(angle)*length/2, p.y - Math.cos(angle)*length/2, depth*30, (.55 + depth*.75) * (1 + blur * .8) * (drizzle ? .75 : 1), length, angle, opacity, blur);
       }
     },
-    splash(p) { const r = (1-p.life)*7+1; instance(splashes,p.x,p.y,40,r*2,r*.45,-p.angle,p.life*.3); },
-    droplet(p) { instance(beads,p.x,p.y,41,p.size*1.4,p.size*2,Math.atan2(p.vx,p.vy),p.life*.4); },
+    // A crown that opens out from the impact, with spray thrown up around it.
+    splash(p) { const r = (1-p.life)*11+2; instance(splashes,p.x,p.y,40,r*2,r*.5,-p.angle,Math.min(1,p.life*1.3)*.62); },
+    droplet(p) { instance(beads,p.x,p.y,41,p.size*2,p.size*2.6,Math.atan2(p.vx,p.vy),p.life*.75); },
     deposit(p) { instance(caps,p.x,p.y-p.size*.22,40,p.size*3.6,p.size*1.25,-p.angle,p.life*.95); },
     render() { if (lost) return; batches.forEach(mesh => { mesh.instanceMatrix.needsUpdate = true; if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true; }); renderer.render(scene,camera); },
     get available() { return !lost; },
