@@ -85,17 +85,26 @@ float fbm3(vec2 p) {
 // Premultiplied "over": paint colour c with coverage a on top of dst.
 vec4 over(vec4 dst, vec3 c, float a) { return vec4(c * a, a) + dst * (1.0 - a); }
 
-float starField(vec2 px, float cell, float chance, float t) {
+// Point stars: a pin-sharp core, a faint glow and small cross glints on the
+// brightest few. Twinkle mixes two slow waves with an occasional quick glint.
+// Returns tint and intensity.
+vec4 starField(vec2 px, float cell, float chance, float t) {
   vec2 id = floor(px / cell);
   float r = hash(id * 1.37 + cell);
-  if (r > chance) return 0.0;
-  vec2 centre = (id + .2 + .6 * vec2(hash(id + 11.0), hash(id + 23.0))) * cell;
-  float bright = pow(hash(id + 37.0), 2.5);
-  float size = .55 + bright * 1.1;
-  float twinkle = .75 + .25 * sin(t * (.6 + 2.0 * hash(id + 51.0)) + r * 60.0);
-  float d = length(px - centre);
-  return (1.0 - smoothstep(size * .4, size, d)) * (.25 + .75 * bright) * twinkle
-       + exp(-d * d / (size * 9.0)) * bright * .25;
+  if (r > chance) return vec4(0.0);
+  vec2 d = px - (id + .15 + .7 * vec2(hash(id + 11.0), hash(id + 23.0))) * cell;
+  float bright = pow(hash(id + 37.0), 3.0);
+  float phase = hash(id + 51.0) * 6.2832, rate = .7 + 1.6 * hash(id + 61.0);
+  float twinkle = .72 + .18 * sin(t * rate + phase) + .1 * sin(t * rate * 2.7 + phase * 3.1)
+    + pow(max(0.0, sin(t * rate * .37 + phase * 5.0)), 24.0) * .5 * bright;
+  float d2 = dot(d, d);
+  float core = exp(-d2 / (.3 + bright * .25));
+  float glow = exp(-sqrt(d2) / (1.2 + bright * 2.2)) * .2 * (.3 + bright);
+  float spikes = max(0.0, bright - .55) * .9 * (
+      exp(-abs(d.x) * 2.2 - d.y * d.y / .12) + exp(-abs(d.y) * 2.2 - d.x * d.x / .12));
+  float light = (core * (.55 + .45 * bright) + glow + spikes) * twinkle;
+  vec3 tint = mix(vec3(1.0), mix(vec3(.78, .86, 1.0), vec3(1.0, .9, .76), hash(id + 71.0)), .55);
+  return vec4(tint, clamp(light, 0.0, 1.0));
 }
 
 void main() {
@@ -141,11 +150,10 @@ void main() {
 
   // Clouds style: a sparse, dim band of stars near the top that fades out
   // well before the content. Full style: the whole sky.
-  float starBand = opaque > .5 ? 1.0 : smoothstep(.62, .95, uv.y) * .7;
-  float starLight = opaque > .5
-    ? starField(px, 26.0, .42, time) + starField(px, 11.0, .1, time * 1.3) * .6
-    : starField(px, 38.0, .28, time * .6);
-  col = over(col, vec3(1.0), clamp(stars * starBand * (1.0 - wisp * .8) * (1.0 - cloudAlpha) * starLight, 0.0, 1.0));
+  float starBand = opaque > .5 ? 1.0 : smoothstep(.6, .95, uv.y);
+  vec4 star = starField(px, opaque > .5 ? 24.0 : 36.0, opaque > .5 ? .45 : .3, time);
+  if (opaque > .5) { vec4 faint = starField(px, 11.0, .1, time * 1.3); if (faint.a * .5 > star.a) star = vec4(faint.rgb, faint.a * .5); }
+  col = over(col, star.rgb, clamp(stars * starBand * (1.0 - wisp * .8) * (1.0 - cloudAlpha) * star.a, 0.0, 1.0));
   col = over(col, mix(cloudLight, cloudShadow, .25), wisp * .55);
   col = over(col, cloud, cloudAlpha);
   col = over(col, cloudLight, fog * .6);
@@ -172,11 +180,13 @@ function blend(current, next, t) {
   return current;
 }
 
-export function createSkyRenderer(canvas, { pixelRatio = 1, style = 'clouds', onRestored } = {}) {
+// pixelRatio: resolution for clouds (soft, so 1 is enough). starPixelRatio:
+// used when only stars are showing, so they stay pin-sharp on dense screens.
+export function createSkyRenderer(canvas, { pixelRatio = 1, starPixelRatio = pixelRatio, style = 'clouds', onRestored } = {}) {
   const opaque = style === 'full';
   const gl = canvas.getContext('webgl2', { alpha: !opaque, premultipliedAlpha: true, antialias: false, depth: false, powerPreference: 'low-power' });
   if (!gl) return createGradientSky(canvas, opaque);
-  let program, uniforms, vao, lost = false, width = 1, height = 1, state;
+  let program, uniforms, vao, lost = false, width = 1, height = 1, state, ratio = pixelRatio;
   const names = ['resolution', 'time', 'scale', 'opaque', 'coverage', 'wispy', 'stars', 'mist', 'sun', 'flash', 'drift', 'reach', 'top', 'bottom', 'cloudLight', 'cloudShadow'];
 
   function build() {
@@ -206,18 +216,22 @@ export function createSkyRenderer(canvas, { pixelRatio = 1, style = 'clouds', on
     get available() { return !lost; },
     resize(w, h) {
       width = w; height = h;
-      canvas.width = Math.max(1, Math.round(w * pixelRatio));
-      canvas.height = Math.max(1, Math.round(h * pixelRatio));
+      canvas.width = Math.max(1, Math.round(w * ratio));
+      canvas.height = Math.max(1, Math.round(h * ratio));
     },
     // dt of 0 jumps straight to the new look; otherwise it eases over ~1.5 s.
     render({ condition, night, time, dt = 0, cloudCover, flash = 0 }) {
-      state = blend(state, target(condition, night, cloudCover, style), dt > 0 ? 1 - Math.exp(-dt * 2) : 1);
+      const next = target(condition, night, cloudCover, style);
+      state = blend(state, next, dt > 0 ? 1 - Math.exp(-dt * 2) : 1);
+      const starsOnly = next.coverage < .01 && next.wispy < .01 && next.mist < .01;
+      const wanted = starsOnly ? starPixelRatio : pixelRatio;
+      if (wanted !== ratio) { ratio = wanted; api.resize(width, height); }
       if (lost) return;
       gl.viewport(0, 0, canvas.width, canvas.height);
       gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
       gl.useProgram(program); gl.bindVertexArray(vao);
       gl.uniform2f(uniforms.resolution, canvas.width, canvas.height);
-      gl.uniform1f(uniforms.scale, pixelRatio);
+      gl.uniform1f(uniforms.scale, ratio);
       gl.uniform1f(uniforms.time, time);
       gl.uniform1f(uniforms.opaque, opaque ? 1 : 0);
       gl.uniform1f(uniforms.flash, flash);

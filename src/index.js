@@ -50,7 +50,7 @@ export function createWeatherEffects({
   }
   canvas.dataset.renderer = renderer.backend;
   // Clouds are soft, so the backdrop renders at CSS pixel density at most.
-  const sky = skyCanvas ? createSkyRenderer(skyCanvas, { pixelRatio: Math.min(pixelRatio, 1), style: skyStyle, onRestored: () => { skyTime = -1; restart(); } }) : null;
+  const sky = skyCanvas ? createSkyRenderer(skyCanvas, { pixelRatio: Math.min(pixelRatio, 1), starPixelRatio: pixelRatio, style: skyStyle, onRestored: () => { skyTime = -1; restart(); } }) : null;
   if (sky) skyCanvas.dataset.renderer = sky.backend;
   let skyTime = -1, skyCondition, skyNight;
 
