@@ -227,7 +227,13 @@ export function createSkyRenderer(canvas, { pixelRatio = 1, starPixelRatio = pix
       state = blend(state, next, dt > 0 ? 1 - Math.exp(-dt * 2) : 1);
       const starsOnly = next.coverage < .01 && next.wispy < .01 && next.mist < .01;
       const wanted = starsOnly ? starPixelRatio : pixelRatio;
-      if (wanted !== ratio) { ratio = wanted; api.resize(width, height); }
+      // Follow the canvas's own CSS box every frame, so the drawing buffer can
+      // never be left at another size (or the 300 x 150 default) and stretched.
+      const w = canvas.clientWidth || width, h = canvas.clientHeight || height;
+      if (wanted !== ratio || w !== width || h !== height ||
+          canvas.width !== Math.max(1, Math.round(w * wanted)) || canvas.height !== Math.max(1, Math.round(h * wanted))) {
+        ratio = wanted; api.resize(w, h);
+      }
       if (lost) return;
       gl.viewport(0, 0, canvas.width, canvas.height);
       gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
