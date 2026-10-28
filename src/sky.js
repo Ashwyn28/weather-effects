@@ -10,8 +10,8 @@ const PALETTES = {
   cloudy: { day: ['#5b7084', '#a4b3c1', '#e6ebf0', '#6f7d8b'], night: ['#222347', '#4c4b7c', '#7c7ab0', '#2a2a4c'] },
   rain:   { day: ['#3d4955', '#77848f', '#a6b0bb', '#2a323b'], night: ['#181c25', '#373e4b', '#5d6676', '#0b0e13'] },
   storm:  { day: ['#29313b', '#58626d', '#8a95a1', '#1a1f25'], night: ['#111419', '#2b313b', '#4a5260', '#07080b'] },
-  snow:   { day: ['#8193a6', '#c8d2dc', '#eef2f6', '#98a7b6'], night: ['#283041', '#4f596a', '#6d7788', '#232a36'] },
-  fog:    { day: ['#949fa7', '#ccd1d4', '#dfe3e5', '#a3abb1'], night: ['#363b42', '#575d64', '#6d737a', '#2c3036'] }
+  snow:   { day: ['#6a7d92', '#a9b8c7', '#e6ecf2', '#8495a7'], night: ['#283041', '#4f596a', '#6d7788', '#232a36'] },
+  fog:    { day: ['#7c8891', '#adb5ba', '#d3d8db', '#8f989f'], night: ['#363b42', '#575d64', '#6d737a', '#2c3036'] }
 };
 
 // Per condition: palette, wispy clouds, heavy clouds, stars, mist, sun.
