@@ -23,21 +23,24 @@ addEventListener('scroll', () => effects.invalidate({ clearDeposits: true }), { 
 
 See [`index.d.ts`](index.d.ts) for the full API and [`demo.html`](demo.html) for a standalone page.
 
-## Sky mode
+## Clouds and sky
 
-For a full weather backdrop, like a weather app, pass a second canvas that sits behind your content:
+Pass a second canvas that sits behind your content, and clouds, fog, stars and sun glow are drawn there, so text stays crisp above them:
 
 ```html
-<canvas class="sky"></canvas>      <!-- position: fixed; inset: 0; z-index: 0 -->
-<main style="position: relative; z-index: 1">…</main>
+<canvas class="clouds"></canvas>   <!-- position: fixed; inset: 0; z-index: 0 -->
+<main style="position: relative; z-index: 1">…</main>   <!-- transparent background -->
 <canvas class="weather"></canvas>  <!-- position: fixed; inset: 0; z-index: 2; pointer-events: none -->
 ```
 
 ```js
-const effects = createWeatherEffects({ canvas: weatherCanvas, skyCanvas, THREE });
+const effects = createWeatherEffects({ canvas: weatherCanvas, skyCanvas: cloudsCanvas, THREE });
 ```
 
-The sky draws a day or night gradient for the condition, twinkling stars on clear nights, long drifting wisps, heavy clouds lit from above, low fog banks, a sun glow and lightning. Changes between conditions ease over about a second and a half. Rain becomes long, thin, light streaks. Frosted-glass cards (`backdrop-filter: blur()`) over the sky give the look in the demo.
+- `skyStyle: 'clouds'` (default) keeps your page background. Clouds are lit from above with soft tops and grey undersides, gather near the top of the viewport and thin out before the body text.
+- `skyStyle: 'full'` paints an opaque sky gradient as well, like a weather app, and draws rain as long light streaks. The demo uses this.
+
+Conditions ease into each other over about a second and a half.
 
 ## Behaviour
 

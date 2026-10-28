@@ -43,11 +43,12 @@ export interface WeatherEffectsOptions {
   /** Transparent overlay above the content (pointer-events: none). */
   canvas: HTMLCanvasElement;
   /**
-   * Optional canvas behind the content. When given, an opaque sky is drawn
-   * there (gradient, stars, wisps, heavy clouds, fog, sun glow, lightning),
-   * rain becomes long light streaks, and the overlay no longer tints the page.
+   * Optional canvas behind the content for clouds, fog, stars, sun glow and
+   * lightning. The overlay then no longer draws its own cloud tint.
    */
   skyCanvas?: HTMLCanvasElement;
+  /** 'clouds' (default): transparent, clouds/fog/stars only. 'full': opaque sky gradient too. */
+  skyStyle?: 'clouds' | 'full';
   /** The `three` module namespace. Omit to use the 2D fallback. */
   THREE?: typeof import('three');
   /** Seed for particle randomness. Default 0. */

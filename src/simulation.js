@@ -15,7 +15,7 @@ export function createSimulation({ seed = 0 } = {}) {
   function spawn(initial = false) {
     const snowy = isSnow(condition), windy = condition === 'wind';
     const depth = random(), scale = .45 + depth * 1.15;
-    return {
+    const particle = {
       x: windy && !initial ? (wind < 0 ? width + 30 : -30) : random() * (width + 240) - 120,
       y: initial || windy ? random() * height : -30,
       vx: wind * scale,
@@ -23,23 +23,30 @@ export function createSimulation({ seed = 0 } = {}) {
       size: snowy ? 1 + random() * 2 : condition === 'hail' ? 2.5 : 1,
       phase: particleVariant(++serial) * Math.PI * 2, depth, bounced: false
     };
+    // Each flake sways at its own rhythm; each leaf tumbles at its own rate.
+    if (snowy) { particle.sway = .5 + random() * 1.1; particle.drift = (8 + random() * 14) * scale; }
+    if (windy) { particle.flip = random() * Math.PI * 2; particle.spin = (1.5 + random() * 3.5) * (random() < .5 ? -1 : 1); particle.hue = random(); }
+    return particle;
   }
+
+  // Slow, coherent air movement shared by neighbouring flakes.
+  const turbulence = (x, y, t) => Math.sin(x * .011 + t * .37) * Math.cos(y * .009 - t * .23) + .5 * Math.sin((x + y) * .023 + t * .61);
 
   function splash(hit, particle) {
     impacts.push({ x: hit.x, y: hit.y, angle: hit.angle, life: 1 });
     if (impacts.length > 160) impacts.shift();
-    for (let i = 0; i < 3; i++) {
-      droplets.push({ x: hit.x, y: hit.y - 1, vx: (i - 1) * (25 + random() * 30) + particle.vx * .12,
+    for (let i = 0; i < 2; i++) {
+      droplets.push({ x: hit.x, y: hit.y - 1, vx: (i - .5) * (30 + random() * 30) + particle.vx * .12,
         vy: -30 - random() * 65, size: .7 + random() * .6, life: 1 });
     }
     if (droplets.length > 240) droplets.splice(0, droplets.length - 240);
   }
 
   function targetCount(saveData) {
-    const density = condition === 'wind' ? 80000 : condition === 'snow-showers' ? 7000 : isSnow(condition) ? 11000
+    const density = condition === 'wind' ? 55000 : condition === 'snow-showers' ? 5000 : isSnow(condition) ? 7500
       : condition.includes('drizzle') ? 11000 : ['showers', 'thunderstorm'].includes(condition) ? 5500 : 7500;
     const intensity = Number.isFinite(reading.precipitation) ? clamp(.7 + reading.precipitation * .25, .6, 1.6) : 1;
-    const cap = isRain(condition) ? 450 : condition === 'wind' ? 22 : 240;
+    const cap = isRain(condition) ? 450 : condition === 'wind' ? 30 : isSnow(condition) ? 300 : 240;
     return Math.min(cap, Math.round(width * height / density * intensity * (saveData ? .5 : 1)));
   }
 
@@ -61,18 +68,32 @@ export function createSimulation({ seed = 0 } = {}) {
             const dx = p.x - pointer.x, dy = p.y - pointer.y, distance = Math.hypot(dx, dy);
             if (distance > 1 && distance < 90) p.vx += dx / distance * (1 - distance / 90) * dt * 220;
           }
-          p.phase += dt * (.2 + p.depth * .5);
+          if (snowy) p.phase += dt * p.sway;
         }
-        p.x += p.vx * dt + (snowy ? Math.sin(elapsed * 1.2 + p.phase) * dt * 18 : 0);
-        p.y += p.vy * dt;
-        if (condition === 'wind') { p.y += Math.sin(elapsed * 1.6 + p.phase) * dt * 28; p.phase += dt * 1.5; }
+        if (snowy) {
+          const swing = Math.cos(p.phase) * p.drift + turbulence(p.x, p.y, elapsed) * 16 * (.4 + p.depth);
+          p.x += (p.vx + swing) * dt;
+          // Flakes flutter: fall speed rises and falls as they rock.
+          p.y += p.vy * (1 + .3 * Math.sin(p.phase * 1.7)) * dt;
+        } else {
+          p.x += p.vx * dt;
+          p.y += p.vy * dt;
+        }
+        if (condition === 'wind') {
+          // Leaves rise and fall on eddies and spin faster in stronger gusts.
+          p.y += (Math.sin(elapsed * 1.6 + p.phase * 3) * 34 + Math.sin(p.flip) * 18) * dt;
+          const gust = Math.min(2.5, Math.abs(p.vx) / 80);
+          p.phase += dt * p.spin * .45 * (.5 + gust);
+          p.flip += dt * p.spin * (.6 + gust);
+        }
         if (p.bounced) p.vy += dt * 500;
         // On narrow screens only near rain reaches the room, so it stays readable.
         const includeRoom = width > 760 || !rainy || p.depth < .35;
         const hit = condition !== 'wind' && !p.bounced && surfaceHit(oldX, oldY, p.x, p.y, surfaces, includeRoom);
         if (hit) {
           if (snowy) settleSnow(deposits, hit, p.size);
-          else splash(hit, p);
+          // Distant drops land too small to see a splash.
+          else if (p.depth > .35 || condition === 'hail') splash(hit, p);
           if (condition === 'hail') { p.x = hit.x; p.y = hit.y - 2; p.vy = -90; p.vx *= -.4; p.bounced = true; }
           else { particles[i] = spawn(); continue; }
         }

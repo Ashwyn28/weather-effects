@@ -2,9 +2,9 @@ import { createRefractionLayer } from './refraction.js';
 
 // Viewport coordinates (CSS pixels, y down) keep weather aligned with the
 // caller's surfaces. Throws when WebGL is unavailable.
-// sky: true when an opaque sky is drawn behind the page. Clouds and glow then
-// live in the sky, and rain is drawn as long, light streaks.
-export function createThreeRenderer(canvas, THREE, { pixelRatio, onLost, onRestored, sky = false } = {}) {
+// atmosphere: draw sun, fog and clouds on this layer (off when a backdrop
+// canvas draws them). lightRain: light streaks for a dark full sky.
+export function createThreeRenderer(canvas, THREE, { pixelRatio, onLost, onRestored, atmosphere: showAtmosphere = true, lightRain = false } = {}) {
   const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true, powerPreference: 'low-power' });
   renderer.setPixelRatio(pixelRatio);
   renderer.setClearColor(0, 0);
@@ -16,21 +16,42 @@ export function createThreeRenderer(canvas, THREE, { pixelRatio, onLost, onResto
   const light = new THREE.DirectionalLight('#d9edf8', 2); light.position.set(-100, 300, 250); scene.add(light);
   const transform = new THREE.Object3D(), tint = new THREE.Color();
   let height = 1, lost = false, width = 1;
-  const vertexShader = `varying vec2 vUv; varying float vOpacity;
-    void main() { vUv = uv; vOpacity = instanceColor.r;
+  // Instance colour carries per-particle values: r opacity, g softness or
+  // hue, b leaf side.
+  const vertexShader = `varying vec2 vUv; varying float vOpacity, vSoft, vSide;
+    void main() { vUv = uv; vOpacity = instanceColor.r; vSoft = instanceColor.g; vSide = instanceColor.b;
       gl_Position = projectionMatrix * modelViewMatrix * instanceMatrix * vec4(position, 1.0); }`;
+  const shapes = {
+    // Thin streak, brightest at the leading (lower) end; near drops blur wider.
+    rain: `alpha = (1.0 - smoothstep(mix(.15, 0.0, vSoft), 1.0, abs(p.x)))
+      * (1.0 - smoothstep(.7, 1.0, abs(p.y))) * mix(.1, 1.0, smoothstep(1.0, -.6, p.y));`,
+    // Soft round flake with a faint cool rim so it reads on light pages.
+    // Solid soft flake with a faint cool halo outside it, so white still
+    // reads on a light page.
+    snow: `float r = length(p);
+      float core = 1.0 - smoothstep(mix(.3, 0.0, vSoft), mix(.6, .9, vSoft), r);
+      float halo = (1.0 - smoothstep(.45, 1.0, r)) * .4 * (1.0 - vSoft * .6);
+      alpha = max(core, halo);
+      shade = mix(color2, color, core / max(alpha, .001));`,
+    splash: `float r = length(p); alpha = (1.0 - smoothstep(.06, .2, abs(r - .75))) * (1.0 - smoothstep(.8, 1.0, r)) * step(-.1, p.y);`,
+    deposit: `alpha = 1.0 - smoothstep(.65, 1.0, length(p));`,
+    // A faint, gently curved gust line that fades at both ends.
+    trail: `float curve = sin(p.x * 2.4 + 1.0) * .25; alpha = (1.0 - smoothstep(.0, .1, abs(p.y - curve))) * (1.0 - p.x * p.x);`,
+    // Pointed leaf with a midrib; the underside (vSide low) is paler and duller.
+    wind: `float x = p.x * .5 + .5;
+      float halfWidth = sin(3.14159 * pow(x, .8)) * .95;
+      float edge = abs(p.y) / max(.02, halfWidth);
+      alpha = 1.0 - smoothstep(.75, 1.0, edge);
+      alpha = max(alpha, (1.0 - smoothstep(.0, .06, abs(p.y))) * step(p.x, -.75) * step(-1.0, p.x));
+      shade = mix(color, color2, vSoft);
+      shade *= mix(1.12, .82, vSide) * (1.0 - .25 * (1.0 - smoothstep(.0, .05, abs(p.y))));`
+  };
   function batch(kind, capacity) {
     const material = new THREE.ShaderMaterial({ transparent: true, depthWrite: false, depthTest: false,
-      uniforms: { color: { value: new THREE.Color() } }, vertexShader,
-      fragmentShader: `uniform vec3 color; varying vec2 vUv; varying float vOpacity;
+      uniforms: { color: { value: new THREE.Color() }, color2: { value: new THREE.Color() } }, vertexShader,
+      fragmentShader: `uniform vec3 color, color2; varying vec2 vUv; varying float vOpacity, vSoft, vSide;
         void main() { vec3 shade = color; vec2 p = vUv * 2.0 - 1.0; float alpha;
-          ${kind === 'snow' ? `float r = length(p); float a = atan(p.y, p.x);
-            float arms = pow(abs(cos(a * 3.0)), 10.0); alpha = exp(-r*r*3.8) * (.8 + .2 * arms) * (1.0-smoothstep(.75,1.0,r));`
-          : kind === 'splash' ? `float r = length(p); alpha = (1.0 - smoothstep(.08, .22, abs(r - .75))) * (1.0 - smoothstep(.8, 1.0, r));`
-          : kind === 'deposit' ? `alpha = 1.0 - smoothstep(.65, 1.0, length(p));`
-          : kind === 'trail' ? `float curve = sin(p.x * 3.0) * .3; alpha = (1.0-smoothstep(.02,.12,abs(p.y-curve))) * (1.0-p.x*p.x);`
-          : kind === 'wind' ? `float leaf = abs(p.y) / max(.01, 1.0 - p.x * p.x); alpha = 1.0 - smoothstep(.65, 1.0, leaf); shade *= .72 + .28 * smoothstep(.02, .12, abs(p.y));`
-          : `alpha = (1.0 - smoothstep(.1, 1.0, abs(p.x))) * (1.0 - smoothstep(.75, 1.0, abs(p.y))) * mix(.12, 1.0, smoothstep(1.0, -.7, p.y));`}
+          ${shapes[kind]}
           gl_FragColor = vec4(shade, alpha * vOpacity);
           #include <tonemapping_fragment>
           #include <colorspace_fragment>
@@ -41,7 +62,7 @@ export function createThreeRenderer(canvas, THREE, { pixelRatio, onLost, onResto
     mesh.setColorAt(0, new THREE.Color(1, 1, 1)); mesh.count = 0; scene.add(mesh);
     return mesh;
   }
-  const drops = batch('rain', 500), flakes = batch('snow', 240), wind = batch('wind', 240);
+  const drops = batch('rain', 500), flakes = batch('snow', 300), wind = batch('wind', 240);
   const splashes = batch('splash', 200), caps = batch('deposit', 450), beads = batch('deposit', 240), trails = batch('trail', 40);
   const hail = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 1), new THREE.MeshStandardMaterial({ color: '#d5e5eb', roughness: .3, transparent: true, opacity: .8 }), 240);
   hail.instanceMatrix.setUsage(THREE.DynamicDrawUsage); hail.frustumCulled = false; hail.count = 0; scene.add(hail);
@@ -97,13 +118,13 @@ export function createThreeRenderer(canvas, THREE, { pixelRatio, onLost, onResto
         gl_FragColor = vec4(color,min(.5,alpha * strength + flash*.07));
         #include <colorspace_fragment>
       }` });
-  const atmosphere = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), atmosphereMaterial); atmosphere.renderOrder = -1; atmosphere.visible = !sky; scene.add(atmosphere);
-  function instance(mesh, x, y, z, sx, sy, angle, opacity = 1) {
+  const atmosphere = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), atmosphereMaterial); atmosphere.renderOrder = -1; atmosphere.visible = showAtmosphere; scene.add(atmosphere);
+  function instance(mesh, x, y, z, sx, sy, angle, opacity = 1, g = 0, b = 0) {
     if (mesh.count >= mesh.instanceMatrix.count) return;
     transform.position.set(x, height - y, z); transform.rotation.set(0, 0, angle);
     transform.scale.set(sx, sy, mesh === hail ? sx : 1); transform.updateMatrix();
     mesh.setMatrixAt(mesh.count, transform.matrix);
-    if (mesh !== hail) { const alpha = Math.max(0, Math.min(1, opacity)); tint.setRGB(alpha, alpha, alpha); mesh.setColorAt(mesh.count, tint); }
+    if (mesh !== hail) { const alpha = Math.max(0, Math.min(1, opacity)); tint.setRGB(alpha, g, b); mesh.setColorAt(mesh.count, tint); }
     mesh.count++;
   }
   const api = {
@@ -114,12 +135,15 @@ export function createThreeRenderer(canvas, THREE, { pixelRatio, onLost, onResto
     begin(condition, dark, time, state = {}) {
       refraction.update(condition, dark, time, state.reduced);
       batches.forEach(mesh => { mesh.count = 0; });
-      drops.material.uniforms.color.value.set(sky || dark ? '#dfe8f2' : '#496c80');
-      splashes.material.uniforms.color.value.set(sky || dark ? '#c9e0e6' : '#567c91');
-      beads.material.uniforms.color.value.set(sky || dark ? '#e0f2ff' : '#7898ac');
-      flakes.material.uniforms.color.value.set(sky || dark ? '#f5fafb' : '#9aaebc');
-      trails.material.uniforms.color.value.set(dark ? '#a0b9c8' : '#90a6b0');
-      wind.material.uniforms.color.value.set(dark ? '#a7b48a' : '#7c8b57');
+      const lightStreaks = lightRain || dark;
+      drops.material.uniforms.color.value.set(lightStreaks ? '#dfe8f2' : '#566b7b');
+      splashes.material.uniforms.color.value.set(lightStreaks ? '#c9dce4' : '#62798a');
+      beads.material.uniforms.color.value.set(lightStreaks ? '#dcecf6' : '#7a92a4');
+      flakes.material.uniforms.color.value.set(dark || lightRain ? '#f6f9fb' : '#ffffff');
+      flakes.material.uniforms.color2.value.set(dark || lightRain ? '#c3d0db' : '#7c8fa1');
+      trails.material.uniforms.color.value.set(dark ? '#9fb2bf' : '#8a9ca8');
+      wind.material.uniforms.color.value.set(dark ? '#7d8d63' : '#6c8a45');
+      wind.material.uniforms.color2.value.set(dark ? '#9b8257' : '#c08b3a');
       caps.material.uniforms.color.value.set('#f6fafb');
       atmosphereMaterial.uniforms.kind.value = ['clear', 'mainly-clear'].includes(condition) ? 1 : condition === 'fog' ? 3 : ['overcast','thunderstorm','hail','rain','showers','drizzle','freezing-rain','freezing-drizzle','snow','snow-showers'].includes(condition) ? 4 : condition === 'wind' ? 5 : condition === 'partly-cloudy' ? 2 : 0;
       atmosphereMaterial.uniforms.strength.value = ['thunderstorm','hail'].includes(condition) ? .7 : .4;
@@ -131,21 +155,30 @@ export function createThreeRenderer(canvas, THREE, { pixelRatio, onLost, onResto
     },
     particle(p, condition, dark) {
       const depth = p.depth || 0, scale = .45 + depth * 1.15;
-      if (condition === 'snow' || condition === 'snow-showers') instance(flakes, p.x, p.y, depth*30, p.size*4*scale, p.size*4*scale, p.phase, .35 + depth * .5);
-      else if (condition === 'hail') instance(hail, p.x, p.y, depth*30, p.size*scale, p.size*scale, p.phase);
+      if (condition === 'snow' || condition === 'snow-showers') {
+        // Near flakes are out of focus: larger, softer, fainter.
+        const soft = depth > .72 ? (depth - .72) / .28 : depth < .12 ? .3 : 0;
+        const size = (2.2 + p.size * 2) * scale * (1 + soft * .9);
+        instance(flakes, p.x, p.y, depth*30, size, size, 0, (.55 + depth * .4) * (1 - soft * .4), soft);
+      } else if (condition === 'hail') instance(hail, p.x, p.y, depth*30, p.size*scale, p.size*scale, p.phase);
       else if (condition === 'wind') {
-        instance(wind, p.x, p.y, depth*30, 10*scale, 5*scale, p.phase, .65);
-        if (depth < .35) instance(trails, p.x - Math.sign(p.vx)*50, p.y, 0, 100*scale, 18, 0, .22);
+        // Leaves turn over as they tumble: width follows the flip angle.
+        const flip = p.flip ?? p.phase, side = .5 + .5 * Math.cos(flip);
+        instance(wind, p.x, p.y, depth*30, 17*scale*(.18 + .82*Math.abs(Math.cos(flip))), 8*scale, p.phase, .92, p.hue ?? .3, side);
+        if (depth < .3 && Math.abs(p.vx) > 60) instance(trails, p.x - Math.sign(p.vx)*70, p.y + 6, 0, 150*scale, 14, 0, .1);
       } else {
+        // Streak length is the distance a drop covers during a short exposure.
         const heavy = ['showers','thunderstorm'].includes(condition), drizzle = condition.includes('drizzle');
-        const length = (sky ? (drizzle ? 18 : heavy ? 80 : 58) : (drizzle ? 9 : heavy ? 28 : 20)) * scale;
+        const speed = Math.hypot(p.vx, p.vy), exposure = (drizzle ? .022 : heavy ? .045 : .038) * (lightRain ? 1.5 : 1);
+        const length = Math.max(4, Math.min(120, speed * exposure));
+        const blur = depth > .8 ? (depth - .8) * 5 : 0;
         const angle = Math.atan2(p.vx, p.vy);
-        const opacity = sky ? .1 + depth * .32 : .18 + depth * (dark ? .42 : .32);
-        instance(drops, p.x - Math.sin(angle)*length/2, p.y - Math.cos(angle)*length/2, depth*30, sky ? .45 + depth * 1.1 : .55 + depth*.8, length, angle, opacity);
+        const opacity = (lightRain || dark ? .12 + depth * .38 : .16 + depth * .36) * (1 - blur * .35);
+        instance(drops, p.x - Math.sin(angle)*length/2, p.y - Math.cos(angle)*length/2, depth*30, (.55 + depth*.75) * (1 + blur * .8), length, angle, opacity, blur);
       }
     },
-    splash(p) { const r = (1-p.life)*10+1; instance(splashes,p.x,p.y,40,r*2,r*.5,-p.angle,p.life*(sky?.25:.4)); },
-    droplet(p) { instance(beads,p.x,p.y,41,p.size*(sky?1.4:2),p.size*(sky?2:3),Math.atan2(p.vx,p.vy),p.life*(sky?.3:.65)); },
+    splash(p) { const r = (1-p.life)*7+1; instance(splashes,p.x,p.y,40,r*2,r*.45,-p.angle,p.life*.3); },
+    droplet(p) { instance(beads,p.x,p.y,41,p.size*1.4,p.size*2,Math.atan2(p.vx,p.vy),p.life*.4); },
     deposit(p) { instance(caps,p.x,p.y-p.size*.22,40,p.size*3.6,p.size*1.25,-p.angle,p.life*.95); },
     render() { if (lost) return; batches.forEach(mesh => { mesh.instanceMatrix.needsUpdate = true; if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true; }); renderer.render(scene,camera); },
     get available() { return !lost; },

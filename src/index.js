@@ -17,12 +17,12 @@ const FRAME = 1000 / 30;
  * fallback is used. When WebGL fails on the given canvas, a fresh canvas
  * replaces it in the DOM; read `effects.canvas` for the element in use.
  *
- * Pass `skyCanvas` (placed behind the page content) for an opaque sky with
- * stars, clouds and fog. Without it, the layer is transparent and tints the
- * page instead.
+ * Pass `skyCanvas`, placed behind the page content, to draw clouds, fog,
+ * stars and sun glow there so text stays crisp above them. `skyStyle: 'full'`
+ * also paints an opaque sky gradient, like a weather app.
  */
 export function createWeatherEffects({
-  canvas, skyCanvas, THREE, seed = 0, autoplay = true,
+  canvas, skyCanvas, skyStyle = 'clouds', THREE, seed = 0, autoplay = true,
   pixelRatio = Math.min(globalThis.devicePixelRatio || 1, 2),
   reducedMotion = globalThis.matchMedia?.('(prefers-reduced-motion: reduce)'),
   saveData = globalThis.navigator?.connection?.saveData === true
@@ -34,7 +34,7 @@ export function createWeatherEffects({
 
   if (THREE) {
     try {
-      renderer = createThreeRenderer(canvas, THREE, { pixelRatio, sky: !!skyCanvas, onRestored: () => { invalidate(); restart(); } });
+      renderer = createThreeRenderer(canvas, THREE, { pixelRatio, atmosphere: !skyCanvas, lightRain: !!skyCanvas && skyStyle === 'full', onRestored: () => { invalidate(); restart(); } });
     } catch { /* fall through to 2D */ }
   }
   if (!renderer) {
@@ -49,10 +49,10 @@ export function createWeatherEffects({
     renderer = createCanvasRenderer(canvas, { pixelRatio });
   }
   canvas.dataset.renderer = renderer.backend;
-  // Clouds are soft, so the sky renders at CSS pixel density at most.
-  const sky = skyCanvas ? createSkyRenderer(skyCanvas, { pixelRatio: Math.min(pixelRatio, 1.5), onRestored: () => restart() }) : null;
+  // Clouds are soft, so the backdrop renders at CSS pixel density at most.
+  const sky = skyCanvas ? createSkyRenderer(skyCanvas, { pixelRatio: Math.min(pixelRatio, 1), style: skyStyle, onRestored: () => { skyTime = -1; restart(); } }) : null;
   if (sky) skyCanvas.dataset.renderer = sky.backend;
-  let skyTime = -1;
+  let skyTime = -1, skyCondition, skyNight;
 
   const reduced = () => reducedMotion?.matches === true;
   const isStatic = () => !playing || reduced();
@@ -65,9 +65,13 @@ export function createWeatherEffects({
 
   function paint() {
     const condition = simulation.condition;
-    if (sky) {
-      const time = simulation.elapsed, dt = skyTime < 0 || isStatic() ? 0 : Math.max(0, time - skyTime);
-      skyTime = time;
+    const time = simulation.elapsed;
+    const skyDt = skyTime < 0 || isStatic() ? 0 : Math.max(0, time - skyTime);
+    // Clouds drift slowly; ~20 fps is plenty and halves the backdrop's cost.
+    const skipSky = skyDt > 0 && skyDt < .05 && condition === skyCondition && night === skyNight;
+    if (sky && !skipSky) {
+      skyTime = time; skyCondition = condition; skyNight = night;
+      const dt = skyDt;
       const pulse = Math.max(0, Math.sin(time * Math.PI / 9));
       const flash = condition === 'thunderstorm' && !isStatic() ? Math.pow(pulse, 100) * .8 : 0;
       sky.render({ condition, night, time, dt, wind: simulation.wind, cloudCover: reading.cloudCover, flash });

@@ -113,24 +113,28 @@ test('effects API drives the canvas fallback, seeks deterministically and valida
   } finally { globalThis.requestAnimationFrame = raf; }
 });
 
-test('sky mode falls back to a gradient without WebGL2 and follows weather changes', async () => {
+test('backdrop falls back to 2D without WebGL2: full style paints a gradient, clouds style stays clear', async () => {
   const { createWeatherEffects } = await import('../src/index.js');
-  const fills = [];
-  const ctx = new Proxy({}, { get: (_, key) => key === 'createLinearGradient' || key === 'createRadialGradient' ? () => ({ addColorStop: (_, c) => fills.push(c) }) : () => {}, set: () => true });
-  const canvas = { dataset: {}, clientWidth: 200, clientHeight: 100, getContext: () => ctx };
-  const skyCanvas = { dataset: {}, getContext: type => type === '2d' ? ctx : null };
+  const fills = [], clears = [];
+  const ctx = new Proxy({}, { get: (_, key) => key === 'createLinearGradient' || key === 'createRadialGradient' ? () => ({ addColorStop: (_, c) => fills.push(c) }) : key === 'clearRect' ? () => clears.push(1) : () => {}, set: () => true });
+  const canvas = () => ({ dataset: {}, clientWidth: 200, clientHeight: 100, getContext: type => type === '2d' ? ctx : null });
   const raf = globalThis.requestAnimationFrame;
   globalThis.requestAnimationFrame = () => 1; globalThis.cancelAnimationFrame = () => {};
   try {
-    const effects = createWeatherEffects({ canvas, skyCanvas, autoplay: false });
-    assert.equal(effects.skyBackend, 'canvas');
-    assert.equal(skyCanvas.dataset.renderer, 'canvas');
+    const full = createWeatherEffects({ canvas: canvas(), skyCanvas: canvas(), skyStyle: 'full', autoplay: false });
+    assert.equal(full.skyBackend, 'canvas');
     fills.length = 0;
-    effects.setWeather('clear', { night: true });
+    full.setWeather('clear', { night: true });
     assert.ok(fills.includes('#11142e'));
     fills.length = 0;
-    effects.setWeather('rain', { night: false });
+    full.setWeather('rain', { night: false });
     assert.ok(fills.includes('#3d4955'));
-    effects.dispose();
+    full.dispose();
+    const clouds = createWeatherEffects({ canvas: canvas(), skyCanvas: canvas(), autoplay: false });
+    fills.length = 0; clears.length = 0;
+    clouds.setWeather('rain');
+    assert.ok(clears.length > 0);
+    assert.ok(!fills.includes('#3d4955'));
+    clouds.dispose();
   } finally { globalThis.requestAnimationFrame = raf; }
 });
