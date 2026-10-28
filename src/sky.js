@@ -20,13 +20,13 @@ const SKIES = {
 // Clouds style, over the caller's page: [lit, shadow]. Day tones suit a light
 // page; night tones a dark one.
 const TONES = {
-  clear:  { day: ['#f1f4f7', '#97a6b4'], night: ['#525a64', '#2e3339'] },
-  partly: { day: ['#eef2f6', '#8b9bab'], night: ['#555d68', '#2e3339'] },
-  cloudy: { day: ['#e9edf0', '#8f9ba6'], night: ['#565e69', '#2d3238'] },
-  rain:   { day: ['#d3d9df', '#7d8996'], night: ['#58606b', '#2c3137'] },
-  storm:  { day: ['#c3cbd2', '#6b7682'], night: ['#4f5661', '#23272c'] },
-  snow:   { day: ['#f3f6f8', '#a7b3be'], night: ['#525a65', '#2c3138'] },
-  fog:    { day: ['#eef1f2', '#c3cacf'], night: ['#4f555b', '#373b40'] }
+  clear:  { day: ['#f1f4f7', '#97a6b4'], night: ['#505b70', '#262e42'] },
+  partly: { day: ['#eef2f6', '#8b9bab'], night: ['#535e74', '#262e42'] },
+  cloudy: { day: ['#e9edf0', '#8f9ba6'], night: ['#4f5a6f', '#222a3d'] },
+  rain:   { day: ['#d3d9df', '#7d8996'], night: ['#4f5a70', '#1f2638'] },
+  storm:  { day: ['#c3cbd2', '#6b7682'], night: ['#465066', '#161c2b'] },
+  snow:   { day: ['#f3f6f8', '#a7b3be'], night: ['#5a6579', '#2a3245'] },
+  fog:    { day: ['#eef1f2', '#c3cacf'], night: ['#4d566a', '#343c50'] }
 };
 
 // tones, coverage, wisps, stars, mist, sun, reach (fraction of the height
