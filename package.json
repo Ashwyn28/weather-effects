@@ -1,0 +1,52 @@
+{
+  "name": "weather-effects",
+  "version": "0.1.0",
+  "description": "Transparent weather overlay for web pages: rain, snow, hail, wind, fog, clouds and droplet refraction.",
+  "license": "MIT",
+  "author": "Ashwyn Annauth",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Ashwyn28/weather-effects.git"
+  },
+  "homepage": "https://github.com/Ashwyn28/weather-effects#readme",
+  "keywords": [
+    "weather",
+    "rain",
+    "snow",
+    "webgl",
+    "three",
+    "particles",
+    "effects"
+  ],
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./src/index.js"
+    }
+  },
+  "types": "./index.d.ts",
+  "files": [
+    "src",
+    "index.d.ts",
+    "README.md",
+    "LICENSE"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "demo": "python3 -m http.server 8000 --bind 127.0.0.1"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "peerDependencies": {
+    "three": ">=0.160.0"
+  },
+  "peerDependenciesMeta": {
+    "three": {
+      "optional": true
+    }
+  },
+  "private": true
+}
