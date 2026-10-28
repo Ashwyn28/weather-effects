@@ -32,9 +32,9 @@ const TONES = {
 // tones, coverage, wisps, stars, mist, sun, reach (fraction of the height
 // that clouds extend down from the top in clouds style), drift speed
 const LOOKS = {
-  'clear':            ['clear',  0,   .08, 1,  0,  1,  .3,  1],
-  'mainly-clear':     ['clear',  .38, .22, .9, 0,  .8, .35, 1],
-  'partly-cloudy':    ['partly', .6,  .3,  .6, 0,  .5, .45, 1],
+  'clear':            ['clear',  0,   0,   1,  0,  1,  .3,  1],
+  'mainly-clear':     ['clear',  .38, .22, .7, 0,  .8, .35, 1],
+  'partly-cloudy':    ['partly', .6,  .3,  .4, 0,  .5, .45, 1],
   'overcast':         ['cloudy', .9,  .25, .1, 0,  0,  .5,  .8],
   'fog':              ['fog',    .4,  0,   0,  1,  0,  .45, .6],
   'drizzle':          ['rain',   .82, .2,  0,  .2, 0,  .5,  .9],
@@ -46,7 +46,7 @@ const LOOKS = {
   'hail':             ['storm',  .95, 0,   0,  .1, 0,  .46, 1.3],
   'snow':             ['snow',   .84, .15, 0,  .2, 0,  .5,  .7],
   'snow-showers':     ['snow',   .72, .1,  0,  .25, 0, .5,  .9],
-  'wind':             ['partly', .5,  .55, .5, 0,  .4, .42, 3]
+  'wind':             ['partly', .5,  .55, .3, 0,  .4, .42, 3]
 };
 
 const VERTEX = `#version 300 es
@@ -108,7 +108,7 @@ void main() {
   // Sun glow, upper right.
   vec2 s = (uv - vec2(.82, 1.02)) * vec2(aspect, 1.0);
   float glow = exp(-dot(s, s) * 5.0) * .3 + exp(-dot(s, s) * 60.0) * .25;
-  col = over(col, vec3(1.0, .88, .66), sun * glow * (opaque > .5 ? 1.0 : .45));
+  col = over(col, vec3(1.0, .88, .66), sun * glow * opaque);
 
   // Clouds thin out towards the reach line so the body of the page stays clear.
   float profile = smoothstep(1.0 - reach - .12, 1.0 - reach + .4, uv.y);
@@ -124,7 +124,7 @@ void main() {
   vec2 warp = vec2(fbm3(q * .45 + vec2(time * .002, 1.7)), fbm3(q * .45 + 4.1));
   vec2 base = q + warp * 1.1;
   float shapeProfile = opaque > .5 ? .55 + .6 * smoothstep(.05, .95, uv.y) : profile;
-  float density = clamp((fbm(base) - thin) / .24, 0.0, 1.0) * shapeProfile;
+  float density = clamp((fbm(base) - thin) / .24, 0.0, 1.0) * shapeProfile * step(.01, coverage);
   float shadow = 0.0;
   for (int i = 1; i <= 3; i++) {
     vec2 o = vec2(.035, .085) * float(i);
@@ -139,8 +139,13 @@ void main() {
   vec2 m = p * vec2(1.4, 3.0) + vec2(time * .02, 0.0);
   float fog = smoothstep(.3, .75, fbm(m + fbm3(m * .7 + time * .01))) * (1.0 - smoothstep(.1, .9, uv.y)) * mist;
 
-  col = over(col, vec3(1.0), clamp(stars * (1.0 - wisp * .8) * (
-    starField(px, 26.0, .42, time) + starField(px, 11.0, .1, time * 1.3) * .6), 0.0, 1.0));
+  // Clouds style: a sparse, dim band of stars near the top that fades out
+  // well before the content. Full style: the whole sky.
+  float starBand = opaque > .5 ? 1.0 : smoothstep(.62, .95, uv.y) * .7;
+  float starLight = opaque > .5
+    ? starField(px, 26.0, .42, time) + starField(px, 11.0, .1, time * 1.3) * .6
+    : starField(px, 38.0, .28, time * .6);
+  col = over(col, vec3(1.0), clamp(stars * starBand * (1.0 - wisp * .8) * (1.0 - cloudAlpha) * starLight, 0.0, 1.0));
   col = over(col, mix(cloudLight, cloudShadow, .25), wisp * .55);
   col = over(col, cloud, cloudAlpha);
   col = over(col, cloudLight, fog * .6);
