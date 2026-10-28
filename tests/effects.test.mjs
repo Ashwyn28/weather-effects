@@ -112,3 +112,25 @@ test('effects API drives the canvas fallback, seeks deterministically and valida
     effects.dispose();
   } finally { globalThis.requestAnimationFrame = raf; }
 });
+
+test('sky mode falls back to a gradient without WebGL2 and follows weather changes', async () => {
+  const { createWeatherEffects } = await import('../src/index.js');
+  const fills = [];
+  const ctx = new Proxy({}, { get: (_, key) => key === 'createLinearGradient' || key === 'createRadialGradient' ? () => ({ addColorStop: (_, c) => fills.push(c) }) : () => {}, set: () => true });
+  const canvas = { dataset: {}, clientWidth: 200, clientHeight: 100, getContext: () => ctx };
+  const skyCanvas = { dataset: {}, getContext: type => type === '2d' ? ctx : null };
+  const raf = globalThis.requestAnimationFrame;
+  globalThis.requestAnimationFrame = () => 1; globalThis.cancelAnimationFrame = () => {};
+  try {
+    const effects = createWeatherEffects({ canvas, skyCanvas, autoplay: false });
+    assert.equal(effects.skyBackend, 'canvas');
+    assert.equal(skyCanvas.dataset.renderer, 'canvas');
+    fills.length = 0;
+    effects.setWeather('clear', { night: true });
+    assert.ok(fills.includes('#11142e'));
+    fills.length = 0;
+    effects.setWeather('rain', { night: false });
+    assert.ok(fills.includes('#3d4955'));
+    effects.dispose();
+  } finally { globalThis.requestAnimationFrame = raf; }
+});

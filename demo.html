@@ -2,52 +2,117 @@
 <html lang="en">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Weather effects demo</title>
+<title>Weather effects</title>
 <style>
-  :root { color-scheme: light dark; font: 16px/1.5 system-ui, sans-serif; }
-  body { margin: 0; padding: 48px 16px; max-width: 640px; margin-inline: auto; background: #f4f5f2; color: #222; }
-  body.night { background: #232426; color: #eee; }
-  canvas.weather { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; }
-  .controls { display: flex; flex-wrap: wrap; gap: 6px; }
-  button { font: inherit; padding: 6px 10px; }
-  .card { margin-top: 48px; padding: 24px; border-top: 2px solid currentColor; }
+  :root { font: 16px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; color: #fff; color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; background: #1d2140; }
+  canvas.sky { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 0; }
+  canvas.weather { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 2; pointer-events: none; }
+  main { position: relative; z-index: 1; max-width: 860px; margin: 0 auto; padding: 72px 16px 64px; }
+  header { text-align: center; text-shadow: 0 1px 8px #0003; }
+  header h1 { font-size: 34px; font-weight: 500; margin: 0; }
+  .temp { font-size: 96px; font-weight: 200; line-height: 1; margin: 2px 0 0 .3em; }
+  .summary { font-size: 20px; font-weight: 500; margin-top: 4px; }
+  .range { font-size: 18px; font-weight: 500; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; margin-top: 88px; }
+  .card { border-radius: 16px; padding: 14px 16px 16px; background: #ffffff14; border: 1px solid #ffffff1f;
+    backdrop-filter: blur(24px) saturate(1.4); -webkit-backdrop-filter: blur(24px) saturate(1.4); }
+  .card.wide { grid-column: 1 / -1; }
+  .card h2 { margin: 0 0 10px; font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: #ffffffa0; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  button { font: inherit; font-size: 14px; color: #fff; background: #ffffff14; border: 1px solid #ffffff24; border-radius: 999px; padding: 6px 12px; cursor: pointer; }
+  button[aria-pressed="true"] { background: #ffffffe6; color: #1d2140; }
+  button:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+  .row { display: flex; justify-content: space-between; padding: 9px 0; border-top: 1px solid #ffffff1a; font-size: 15px; }
+  .row:first-of-type { border-top: 0; }
+  .row span:last-child { color: #ffffffa0; }
+  .hours { display: flex; justify-content: space-between; text-align: center; font-size: 15px; font-weight: 500; }
+  .hours small { display: block; font-size: 12px; color: #ffffffa0; margin-bottom: 6px; }
+  footer { margin-top: 32px; text-align: center; font-size: 13px; color: #ffffff99; }
+  footer a { color: inherit; }
 </style>
-<h1>Weather effects</h1>
-<div class="controls" id="conditions"></div>
-<p class="controls"><button id="night">Night</button><button id="pause">Pause</button></p>
-<div class="card"><h2>A ledge for the rain</h2><p>Headings and the rule above are collision surfaces.</p></div>
-<div class="card"><h2>Another one</h2><p>Snow settles here.</p></div>
+<canvas class="sky" aria-hidden="true"></canvas>
+<main>
+  <header>
+    <h1>Somewhere</h1>
+    <div class="temp">14°</div>
+    <div class="summary" id="summary">Rain</div>
+    <div class="range">H:16° L:8°</div>
+  </header>
+  <div class="grid">
+    <section class="card wide" aria-labelledby="pick">
+      <h2 id="pick">Conditions</h2>
+      <div class="chips" id="conditions" role="group" aria-label="Weather condition"></div>
+    </section>
+    <section class="card" aria-labelledby="time">
+      <h2 id="time">Time of day</h2>
+      <div class="chips"><button id="day" aria-pressed="false">Day</button><button id="night" aria-pressed="true">Night</button><button id="pause" aria-pressed="false">Pause</button></div>
+    </section>
+    <section class="card" aria-labelledby="wind">
+      <h2 id="wind">Wind</h2>
+      <div class="row"><span>Wind</span><span>9 mph</span></div>
+      <div class="row"><span>Gusts</span><span>17 mph</span></div>
+      <div class="row"><span>Direction</span><span>250° WSW</span></div>
+    </section>
+    <section class="card wide" aria-labelledby="hourly">
+      <h2 id="hourly">Hourly</h2>
+      <div class="hours"><div><small>Now</small>14°</div><div><small>8PM</small>14°</div><div><small>9PM</small>13°</div><div><small>10PM</small>13°</div><div><small>11PM</small>12°</div><div><small>12AM</small>12°</div></div>
+    </section>
+  </div>
+  <footer><a href="https://github.com/Ashwyn28/weather-effects">weather-effects</a> · rain lands on the card edges; move the pointer through snow</footer>
+</main>
 <canvas class="weather" aria-hidden="true"></canvas>
 <script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js" } }</script>
 <script type="module">
 import * as THREE from 'three';
 import { createWeatherEffects, CONDITIONS } from './src/index.js';
-const effects = createWeatherEffects({ canvas: document.querySelector('canvas.weather'), THREE });
-let night = false, condition = 'rain';
-effects.resize(innerWidth, innerHeight);
-effects.setSurfaces(() => [...document.querySelectorAll('h2, .card')].map(el => {
-  const r = el.getBoundingClientRect();
-  return { points: [{ x: r.left, y: r.top }, { x: r.right, y: r.top }] };
-}));
-// Paint the cards so droplets have something to refract.
-effects.setBackground((ctx, { night }) => {
-  for (const card of document.querySelectorAll('.card')) {
-    const r = card.getBoundingClientRect();
-    ctx.fillStyle = night ? '#3a4a55' : '#c9dde6'; ctx.fillRect(r.left, r.top, r.width, r.height);
-  }
-  return { color: night ? '#232426' : '#f4f5f2' };
+
+const labels = { 'clear': 'Clear', 'mainly-clear': 'Mostly Clear', 'partly-cloudy': 'Partly Cloudy', 'overcast': 'Cloudy', 'fog': 'Fog',
+  'drizzle': 'Drizzle', 'freezing-drizzle': 'Freezing Drizzle', 'rain': 'Rain', 'freezing-rain': 'Freezing Rain', 'showers': 'Showers',
+  'snow': 'Snow', 'snow-showers': 'Snow Showers', 'thunderstorm': 'Thunderstorm', 'hail': 'Hail', 'wind': 'Windy' };
+const params = new URLSearchParams(location.search);
+let condition = CONDITIONS.includes(params.get('weather')) ? params.get('weather') : 'rain';
+let night = params.get('night') !== '0';
+
+const effects = createWeatherEffects({
+  canvas: document.querySelector('canvas.weather'),
+  skyCanvas: document.querySelector('canvas.sky'),
+  THREE
 });
-const apply = () => { document.body.classList.toggle('night', night); effects.setWeather(condition, { night }); };
+effects.resize(innerWidth, innerHeight);
+effects.setSurfaces(() => [...document.querySelectorAll('.card')].map(card => {
+  const r = card.getBoundingClientRect();
+  return { points: [{ x: r.left + 8, y: r.top }, { x: r.right - 8, y: r.top }] };
+}));
+
+const chips = document.getElementById('conditions');
 for (const id of CONDITIONS) {
-  const button = Object.assign(document.createElement('button'), { textContent: id });
+  const button = Object.assign(document.createElement('button'), { textContent: labels[id] });
+  button.dataset.condition = id;
   button.onclick = () => { condition = id; apply(); };
-  document.getElementById('conditions').append(button);
+  chips.append(button);
 }
-document.getElementById('night').onclick = () => { night = !night; apply(); };
-document.getElementById('pause').onclick = e => { effects.playing ? effects.pause() : effects.play(); e.target.textContent = effects.playing ? 'Pause' : 'Play'; };
+function apply() {
+  effects.setWeather(condition, { night, reading: { windSpeed: 15, windGust: 27, windDirection: 250 } });
+  document.getElementById('summary').textContent = labels[condition];
+  chips.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.condition === condition)));
+  document.getElementById('night').setAttribute('aria-pressed', String(night));
+  document.getElementById('day').setAttribute('aria-pressed', String(!night));
+  const url = new URL(location.href);
+  url.searchParams.set('weather', condition); url.searchParams.set('night', night ? '1' : '0');
+  history.replaceState(null, '', url);
+}
+document.getElementById('day').onclick = () => { night = false; apply(); };
+document.getElementById('night').onclick = () => { night = true; apply(); };
+document.getElementById('pause').onclick = event => {
+  effects.playing ? effects.pause() : effects.play();
+  event.target.setAttribute('aria-pressed', String(!effects.playing));
+  event.target.textContent = effects.playing ? 'Pause' : 'Play';
+};
 addEventListener('resize', () => effects.resize(innerWidth, innerHeight));
 addEventListener('scroll', () => effects.invalidate({ clearDeposits: true }), { passive: true });
-addEventListener('pointermove', e => effects.setPointer(e.clientX, e.clientY));
+addEventListener('pointermove', event => effects.setPointer(event.clientX, event.clientY), { passive: true });
 apply();
 window.effects = effects;
 </script>

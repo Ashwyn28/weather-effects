@@ -40,7 +40,14 @@ export type BackgroundPainter = (ctx: CanvasRenderingContext2D, info: Background
 export type BackgroundSource = CanvasImageSource | BackgroundPainter | null;
 
 export interface WeatherEffectsOptions {
+  /** Transparent overlay above the content (pointer-events: none). */
   canvas: HTMLCanvasElement;
+  /**
+   * Optional canvas behind the content. When given, an opaque sky is drawn
+   * there (gradient, stars, wisps, heavy clouds, fog, sun glow, lightning),
+   * rain becomes long light streaks, and the overlay no longer tints the page.
+   */
+  skyCanvas?: HTMLCanvasElement;
   /** The `three` module namespace. Omit to use the 2D fallback. */
   THREE?: typeof import('three');
   /** Seed for particle randomness. Default 0. */
@@ -74,6 +81,8 @@ export interface WeatherEffects {
   /** The canvas in use. Differs from the one passed when WebGL failed and a fallback canvas replaced it. */
   readonly canvas: HTMLCanvasElement;
   readonly backend: 'threejs' | 'canvas';
+  /** null without skyCanvas. */
+  readonly skyBackend: 'webgl2' | 'canvas' | null;
   readonly playing: boolean;
   readonly condition: WeatherCondition;
   /** Simulated seconds. */

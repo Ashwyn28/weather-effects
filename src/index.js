@@ -1,6 +1,7 @@
 import { createSimulation } from './simulation.js';
 import { createThreeRenderer } from './three-renderer.js';
 import { createCanvasRenderer } from './canvas-renderer.js';
+import { createSkyRenderer } from './sky.js';
 import { isCondition } from './conditions.js';
 
 export { CONDITIONS, isCondition, isRain, isSnow, isFrozen, hasPrecipitation } from './conditions.js';
@@ -15,9 +16,13 @@ const FRAME = 1000 / 30;
  * `THREE` for the WebGL renderer; without it, or without WebGL, a 2D canvas
  * fallback is used. When WebGL fails on the given canvas, a fresh canvas
  * replaces it in the DOM; read `effects.canvas` for the element in use.
+ *
+ * Pass `skyCanvas` (placed behind the page content) for an opaque sky with
+ * stars, clouds and fog. Without it, the layer is transparent and tints the
+ * page instead.
  */
 export function createWeatherEffects({
-  canvas, THREE, seed = 0, autoplay = true,
+  canvas, skyCanvas, THREE, seed = 0, autoplay = true,
   pixelRatio = Math.min(globalThis.devicePixelRatio || 1, 2),
   reducedMotion = globalThis.matchMedia?.('(prefers-reduced-motion: reduce)'),
   saveData = globalThis.navigator?.connection?.saveData === true
@@ -29,7 +34,7 @@ export function createWeatherEffects({
 
   if (THREE) {
     try {
-      renderer = createThreeRenderer(canvas, THREE, { pixelRatio, onRestored: () => { invalidate(); restart(); } });
+      renderer = createThreeRenderer(canvas, THREE, { pixelRatio, sky: !!skyCanvas, onRestored: () => { invalidate(); restart(); } });
     } catch { /* fall through to 2D */ }
   }
   if (!renderer) {
@@ -44,6 +49,10 @@ export function createWeatherEffects({
     renderer = createCanvasRenderer(canvas, { pixelRatio });
   }
   canvas.dataset.renderer = renderer.backend;
+  // Clouds are soft, so the sky renders at CSS pixel density at most.
+  const sky = skyCanvas ? createSkyRenderer(skyCanvas, { pixelRatio: Math.min(pixelRatio, 1.5), onRestored: () => restart() }) : null;
+  if (sky) skyCanvas.dataset.renderer = sky.backend;
+  let skyTime = -1;
 
   const reduced = () => reducedMotion?.matches === true;
   const isStatic = () => !playing || reduced();
@@ -56,6 +65,13 @@ export function createWeatherEffects({
 
   function paint() {
     const condition = simulation.condition;
+    if (sky) {
+      const time = simulation.elapsed, dt = skyTime < 0 || isStatic() ? 0 : Math.max(0, time - skyTime);
+      skyTime = time;
+      const pulse = Math.max(0, Math.sin(time * Math.PI / 9));
+      const flash = condition === 'thunderstorm' && !isStatic() ? Math.pow(pulse, 100) * .8 : 0;
+      sky.render({ condition, night, time, dt, wind: simulation.wind, cloudCover: reading.cloudCover, flash });
+    }
     renderer.begin(condition, night, simulation.elapsed * 1000, { wind: simulation.wind, cloudCover: reading.cloudCover, reduced: isStatic() });
     for (const p of simulation.particles) renderer.particle(p, condition, night);
     for (const impact of simulation.impacts) renderer.splash(impact);
@@ -98,6 +114,7 @@ export function createWeatherEffects({
   const api = {
     get canvas() { return canvas; },
     get backend() { return renderer.backend; },
+    get skyBackend() { return sky?.backend ?? null; },
     get playing() { return playing; },
     get condition() { return simulation.condition; },
     get time() { return simulation.elapsed; },
@@ -126,12 +143,14 @@ export function createWeatherEffects({
       const steps = Math.round(seconds * 30), options = { surfaces: readSurfaces(), pointer: null, saveData };
       simulation.step(0, options);
       for (let i = 0; i < steps; i++) simulation.step(1 / 30, options);
+      skyTime = -1;
       if (renderer.available) paint();
     },
     resize(w, h) {
       if (!(w > 0 && h > 0)) throw new RangeError('resize expects positive dimensions');
       width = w; height = h;
       renderer.resize(w, h);
+      sky?.resize(w, h);
       simulation.resize(w, h);
       invalidate();
       restart();
@@ -144,6 +163,7 @@ export function createWeatherEffects({
       globalThis.document?.removeEventListener('visibilitychange', onVisibility);
       reducedMotion?.removeEventListener?.('change', restart);
       renderer.dispose();
+      sky?.dispose();
     }
   };
   api.resize(Math.max(1, canvas.clientWidth || width), Math.max(1, canvas.clientHeight || height));
