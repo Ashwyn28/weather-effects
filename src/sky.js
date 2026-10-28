@@ -216,8 +216,10 @@ export function createSkyRenderer(canvas, { pixelRatio = 1, starPixelRatio = pix
     get available() { return !lost; },
     resize(w, h) {
       width = w; height = h;
-      canvas.width = Math.max(1, Math.round(w * ratio));
-      canvas.height = Math.max(1, Math.round(h * ratio));
+      const cw = Math.max(1, Math.round(w * ratio)), ch = Math.max(1, Math.round(h * ratio));
+      // Reassigning the same size would still clear the canvas.
+      if (canvas.width !== cw) canvas.width = cw;
+      if (canvas.height !== ch) canvas.height = ch;
     },
     // dt of 0 jumps straight to the new look; otherwise it eases over ~1.5 s.
     render({ condition, night, time, dt = 0, cloudCover, flash = 0 }) {

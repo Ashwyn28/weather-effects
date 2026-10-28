@@ -126,7 +126,9 @@ export function createSimulation({ seed = 0 } = {}) {
       condition = next; reading = nextReading || {};
       wind = windAt(reading, condition, elapsed);
     },
-    resize(w, h) { width = w; height = h; clear(); },
+    // A height-only change (a mobile address bar showing or hiding) keeps the
+    // particles; a new width redistributes them.
+    resize(w, h) { const sameWidth = w === width; width = w; height = h; if (!sameWidth) clear(); },
     clearDeposits() { deposits = []; },
     reset(nextSeed = seed) { seed = nextSeed; serial = nextSeed; elapsed = 0; clear(); wind = windAt(reading, condition, 0); },
     step

@@ -154,7 +154,8 @@ export function createWeatherEffects({
       if (!(w > 0 && h > 0)) throw new RangeError('resize expects positive dimensions');
       width = w; height = h;
       renderer.resize(w, h);
-      sky?.resize(w, h);
+      // The backdrop follows its own CSS box, so it can scroll with the page.
+      sky?.resize(skyCanvas.clientWidth || w, skyCanvas.clientHeight || h);
       simulation.resize(w, h);
       invalidate();
       restart();
