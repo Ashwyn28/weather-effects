@@ -169,12 +169,13 @@ export function createThreeRenderer(canvas, THREE, { pixelRatio, onLost, onResto
       } else {
         // Streak length is the distance a drop covers during a short exposure.
         const heavy = ['showers','thunderstorm'].includes(condition), drizzle = condition.includes('drizzle');
-        const speed = Math.hypot(p.vx, p.vy), exposure = (drizzle ? .022 : heavy ? .045 : .038) * (lightRain ? 1.5 : 1);
+        const speed = Math.hypot(p.vx, p.vy), exposure = (drizzle ? .04 : heavy ? .045 : .038) * (lightRain ? 1.5 : 1);
         const length = Math.max(4, Math.min(120, speed * exposure));
         const blur = depth > .8 ? (depth - .8) * 5 : 0;
         const angle = Math.atan2(p.vx, p.vy);
-        const opacity = (lightRain || dark ? .12 + depth * .38 : .16 + depth * .36) * (1 - blur * .35);
-        instance(drops, p.x - Math.sin(angle)*length/2, p.y - Math.cos(angle)*length/2, depth*30, (.55 + depth*.75) * (1 + blur * .8), length, angle, opacity, blur);
+        // Drizzle drops are fine, so each streak is thinner but a little more opaque.
+        const opacity = (lightRain || dark ? .12 + depth * .38 : .16 + depth * .36) * (1 - blur * .35) * (drizzle ? 1.6 : 1);
+        instance(drops, p.x - Math.sin(angle)*length/2, p.y - Math.cos(angle)*length/2, depth*30, (.55 + depth*.75) * (1 + blur * .8) * (drizzle ? .75 : 1), length, angle, opacity, blur);
       }
     },
     splash(p) { const r = (1-p.life)*7+1; instance(splashes,p.x,p.y,40,r*2,r*.45,-p.angle,p.life*.3); },
