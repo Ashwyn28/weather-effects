@@ -34,7 +34,9 @@
   ],
   "sideEffects": false,
   "scripts": {
-    "test": "node --test tests/*.test.mjs",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc",
+    "test": "npm run build && node --test tests/*.test.mjs",
     "demo": "python3 -m http.server 8000 --bind 127.0.0.1"
   },
   "engines": {
@@ -48,5 +50,10 @@
       "optional": true
     }
   },
-  "private": true
+  "private": true,
+  "devDependencies": {
+    "@types/three": "^0.186.0",
+    "three": "^0.186.1",
+    "typescript": "^7.0.2"
+  }
 }
