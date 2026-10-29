@@ -1,6 +1,6 @@
 // Deterministic particle randomness from an integer seed.
 // lowbias32 by Chris Wellons (hash-prospector, public domain).
-export function hash32(x) {
+export function hash32(x: number): number {
   x = (x ^ (x >>> 16)) >>> 0;
   x = Math.imul(x, 0x7feb352d) >>> 0;
   x = (x ^ (x >>> 15)) >>> 0;
@@ -9,11 +9,11 @@ export function hash32(x) {
 }
 
 // A float in [0, 1) for each seed. `salt` gives independent streams.
-export function particleRandom(seed, salt = 0x9e3779b9) {
+export function particleRandom(seed: number, salt = 0x9e3779b9): number {
   return hash32((seed ^ salt) >>> 0) / 4294967296;
 }
 
 // The centre of one of `bins` equal bins, for a small set of variants.
-export function particleVariant(seed, bins = 8) {
+export function particleVariant(seed: number, bins = 8): number {
   return (Math.floor(particleRandom(seed) * bins) + .5) / bins;
 }

@@ -1,21 +1,83 @@
 import { particleRandom, particleVariant } from './random.js';
 import { clamp, windAt, surfaceHit, settleSnow } from './physics.js';
+import type { Point, Surface, SurfaceHit, WeatherReading } from './physics.js';
 import { isRain, isSnow, hasPrecipitation } from './conditions.js';
+import type { WeatherCondition } from './conditions.js';
+
+export interface Particle {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  size: number;
+  phase: number;
+  depth: number;
+  bounced: boolean;
+  /** Wind (leaf) particles. */
+  flip?: number;
+  spin?: number;
+  hue?: number;
+  /** Snow particles. */
+  sway?: number;
+  drift?: number;
+}
+
+export interface Impact {
+  x: number;
+  y: number;
+  angle: number;
+  life: number;
+}
+
+export interface Droplet {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  size: number;
+  life: number;
+}
+
+export interface Deposit extends SurfaceHit {
+  size: number;
+  life: number;
+}
+
+export interface StepOptions {
+  surfaces?: readonly Surface[];
+  pointer?: Point | null;
+  saveData?: boolean;
+}
+
+export interface Simulation {
+  readonly condition: WeatherCondition;
+  readonly elapsed: number;
+  readonly wind: number;
+  readonly particles: Particle[];
+  readonly impacts: Impact[];
+  readonly droplets: Droplet[];
+  readonly deposits: Deposit[];
+  setCondition(next: WeatherCondition, nextReading?: WeatherReading | null): void;
+  resize(w: number, h: number): void;
+  clearDeposits(): void;
+  reset(nextSeed?: number): void;
+  step(dt: number, options?: StepOptions): void;
+}
 
 // DOM-free particle state. Positions are CSS pixels in the caller's viewport.
 // Given the same seed, surfaces and time steps, the output is deterministic.
-export function createSimulation({ seed = 0 } = {}) {
-  let serial = seed, width = 1, height = 1, condition = 'clear', reading = {};
+export function createSimulation({ seed = 0 }: { seed?: number } = {}): Simulation {
+  let serial = seed, width = 1, height = 1, condition: WeatherCondition = 'clear', reading: WeatherReading = {};
   let elapsed = 0, wind = 0;
-  let particles = [], impacts = [], droplets = [], deposits = [];
+  let particles: Particle[] = [], impacts: Impact[] = [], droplets: Droplet[] = [], deposits: Deposit[] = [];
   const random = () => particleRandom(++serial);
 
   function clear() { particles = []; impacts = []; droplets = []; deposits = []; }
 
-  function spawn(initial = false) {
+  function spawn(initial = false): Particle {
     const snowy = isSnow(condition), windy = condition === 'wind';
     const depth = random(), scale = .45 + depth * 1.15;
-    const particle = {
+    const particle: Particle = {
       x: windy && !initial ? (wind < 0 ? width + 30 : -30) : random() * (width + 240) - 120,
       y: initial || windy ? random() * height : -30,
       vx: wind * scale,
@@ -30,9 +92,9 @@ export function createSimulation({ seed = 0 } = {}) {
   }
 
   // Slow, coherent air movement shared by neighbouring flakes.
-  const turbulence = (x, y, t) => Math.sin(x * .011 + t * .37) * Math.cos(y * .009 - t * .23) + .5 * Math.sin((x + y) * .023 + t * .61);
+  const turbulence = (x: number, y: number, t: number) => Math.sin(x * .011 + t * .37) * Math.cos(y * .009 - t * .23) + .5 * Math.sin((x + y) * .023 + t * .61);
 
-  function splash(hit, particle) {
+  function splash(hit: SurfaceHit, particle: Particle) {
     impacts.push({ x: hit.x, y: hit.y, angle: hit.angle, life: 1 });
     if (impacts.length > 160) impacts.shift();
     for (let i = 0; i < 3; i++) {
@@ -42,11 +104,11 @@ export function createSimulation({ seed = 0 } = {}) {
     if (droplets.length > 240) droplets.splice(0, droplets.length - 240);
   }
 
-  function targetCount(saveData) {
+  function targetCount(saveData: boolean) {
     const density = condition === 'wind' ? 55000 : condition === 'snow-showers' ? 5000 : isSnow(condition) ? 7500
       // Drops per pixel area: drizzle is lightest, then rain, then showers and storms.
       : condition.includes('drizzle') ? 6000 : condition === 'showers' ? 3200 : condition === 'thunderstorm' ? 2800 : condition === 'hail' ? 7500 : 4200;
-    const intensity = Number.isFinite(reading.precipitation) ? clamp(.7 + reading.precipitation * .25, .6, 1.6) : 1;
+    const intensity = reading.precipitation !== undefined && Number.isFinite(reading.precipitation) ? clamp(.7 + reading.precipitation * .25, .6, 1.6) : 1;
     const cap = isRain(condition) ? 640 : condition === 'wind' ? 30 : isSnow(condition) ? 300 : 240;
     // Drizzle gets a small boost on phones (its streaks are also drawn wider
     // there), kept low enough that it never has more drops than rain.
@@ -55,7 +117,7 @@ export function createSimulation({ seed = 0 } = {}) {
   }
 
   // dt of 0 keeps a static scene: particles are filled but do not move.
-  function step(dt, { surfaces = [], pointer, saveData = false } = {}) {
+  function step(dt: number, { surfaces = [], pointer, saveData = false }: StepOptions = {}) {
     elapsed += dt;
     wind = windAt(reading, condition, elapsed);
     const moving = dt > 0, snowy = isSnow(condition), rainy = isRain(condition);
@@ -64,7 +126,7 @@ export function createSimulation({ seed = 0 } = {}) {
       if (particles.length > count) particles.length = count;
       while (particles.length < count) particles.push(spawn(true));
       if (moving) for (let i = 0; i < particles.length; i++) {
-        const p = particles[i], oldX = p.x, oldY = p.y;
+        const p = particles[i] as Particle, oldX = p.x, oldY = p.y;
         if (!p.bounced) p.vx += (wind * (.45 + p.depth * 1.15) - p.vx) * Math.min(1, dt * 2);
         // A passing pointer stirs nearby flakes and leaves.
         if (snowy || condition === 'wind') {
@@ -72,10 +134,10 @@ export function createSimulation({ seed = 0 } = {}) {
             const dx = p.x - pointer.x, dy = p.y - pointer.y, distance = Math.hypot(dx, dy);
             if (distance > 1 && distance < 90) p.vx += dx / distance * (1 - distance / 90) * dt * 220;
           }
-          if (snowy) p.phase += dt * p.sway;
+          if (snowy) p.phase += dt * (p.sway ?? 0);
         }
         if (snowy) {
-          const swing = Math.cos(p.phase) * p.drift + turbulence(p.x, p.y, elapsed) * 16 * (.4 + p.depth);
+          const swing = Math.cos(p.phase) * (p.drift ?? 0) + turbulence(p.x, p.y, elapsed) * 16 * (.4 + p.depth);
           p.x += (p.vx + swing) * dt;
           // Flakes flutter: fall speed rises and falls as they rock.
           p.y += p.vy * (1 + .3 * Math.sin(p.phase * 1.7)) * dt;
@@ -85,15 +147,16 @@ export function createSimulation({ seed = 0 } = {}) {
         }
         if (condition === 'wind') {
           // Leaves rise and fall on eddies and spin faster in stronger gusts.
-          p.y += (Math.sin(elapsed * 1.6 + p.phase * 3) * 34 + Math.sin(p.flip) * 18) * dt;
+          p.y += (Math.sin(elapsed * 1.6 + p.phase * 3) * 34 + Math.sin(p.flip ?? 0) * 18) * dt;
           const gust = Math.min(2.5, Math.abs(p.vx) / 80);
-          p.phase += dt * p.spin * .45 * (.5 + gust);
-          p.flip += dt * p.spin * (.6 + gust);
+          const spin = p.spin ?? 0;
+          p.phase += dt * spin * .45 * (.5 + gust);
+          p.flip = (p.flip ?? 0) + dt * spin * (.6 + gust);
         }
         if (p.bounced) p.vy += dt * 500;
         // On narrow screens only near rain reaches the room, so it stays readable.
         const includeRoom = width > 760 || !rainy || p.depth < .35;
-        const hit = condition !== 'wind' && !p.bounced && surfaceHit(oldX, oldY, p.x, p.y, surfaces, includeRoom);
+        const hit = condition !== 'wind' && !p.bounced ? surfaceHit(oldX, oldY, p.x, p.y, surfaces, includeRoom) : undefined;
         if (hit) {
           if (snowy) settleSnow(deposits, hit, p.size);
           // Distant drops land too small to see a splash.
@@ -125,16 +188,16 @@ export function createSimulation({ seed = 0 } = {}) {
     get impacts() { return impacts; },
     get droplets() { return droplets; },
     get deposits() { return deposits; },
-    setCondition(next, nextReading = {}) {
+    setCondition(next: WeatherCondition, nextReading: WeatherReading | null = {}) {
       if (next !== condition) { particles = []; impacts = []; droplets = []; }
       condition = next; reading = nextReading || {};
       wind = windAt(reading, condition, elapsed);
     },
     // A height-only change (a mobile address bar showing or hiding) keeps the
     // particles; a new width redistributes them.
-    resize(w, h) { const sameWidth = w === width; width = w; height = h; if (!sameWidth) clear(); },
+    resize(w: number, h: number) { const sameWidth = w === width; width = w; height = h; if (!sameWidth) clear(); },
     clearDeposits() { deposits = []; },
-    reset(nextSeed = seed) { seed = nextSeed; serial = nextSeed; elapsed = 0; clear(); wind = windAt(reading, condition, 0); },
+    reset(nextSeed: number = seed) { seed = nextSeed; serial = nextSeed; elapsed = 0; clear(); wind = windAt(reading, condition, 0); },
     step
   };
 }
