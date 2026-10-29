@@ -62,7 +62,7 @@ export function createThreeRenderer(canvas, THREE, { pixelRatio, onLost, onResto
     mesh.setColorAt(0, new THREE.Color(1, 1, 1)); mesh.count = 0; scene.add(mesh);
     return mesh;
   }
-  const drops = batch('rain', 500), flakes = batch('snow', 300), wind = batch('wind', 240);
+  const drops = batch('rain', 660), flakes = batch('snow', 300), wind = batch('wind', 240);
   const splashes = batch('splash', 200), caps = batch('deposit', 450), beads = batch('deposit', 240), trails = batch('trail', 40);
   const hail = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 1), new THREE.MeshStandardMaterial({ color: '#d5e5eb', roughness: .3, transparent: true, opacity: .8 }), 240);
   hail.instanceMatrix.setUsage(THREE.DynamicDrawUsage); hail.frustumCulled = false; hail.count = 0; scene.add(hail);
@@ -174,7 +174,7 @@ export function createThreeRenderer(canvas, THREE, { pixelRatio, onLost, onResto
         const blur = depth > .8 ? (depth - .8) * 5 : 0;
         const angle = Math.atan2(p.vx, p.vy);
         // Drizzle drops are fine, so each streak is thinner but a little more opaque.
-        const opacity = (lightRain || dark ? .12 + depth * .38 : .16 + depth * .36) * (1 - blur * .35) * (drizzle ? 1.6 : 1);
+        const opacity = (lightRain || dark ? .12 + depth * .38 : .16 + depth * .36) * (1 - blur * .35) * (drizzle ? 1.15 : 1);
         instance(drops, p.x - Math.sin(angle)*length/2, p.y - Math.cos(angle)*length/2, depth*30, (.55 + depth*.75) * (1 + blur * .8) * (drizzle ? .75 : 1), length, angle, opacity, blur);
       }
     },

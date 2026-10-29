@@ -44,9 +44,10 @@ export function createSimulation({ seed = 0 } = {}) {
 
   function targetCount(saveData) {
     const density = condition === 'wind' ? 55000 : condition === 'snow-showers' ? 5000 : isSnow(condition) ? 7500
-      : condition.includes('drizzle') ? 3000 : ['showers', 'thunderstorm'].includes(condition) ? 5500 : 7500;
+      // Drops per pixel area: drizzle is lightest, then rain, then showers and storms.
+      : condition.includes('drizzle') ? 6000 : condition === 'showers' ? 3200 : condition === 'thunderstorm' ? 2800 : condition === 'hail' ? 7500 : 4200;
     const intensity = Number.isFinite(reading.precipitation) ? clamp(.7 + reading.precipitation * .25, .6, 1.6) : 1;
-    const cap = isRain(condition) ? 450 : condition === 'wind' ? 30 : isSnow(condition) ? 300 : 240;
+    const cap = isRain(condition) ? 640 : condition === 'wind' ? 30 : isSnow(condition) ? 300 : 240;
     return Math.min(cap, Math.round(width * height / density * intensity * (saveData ? .5 : 1)));
   }
 
