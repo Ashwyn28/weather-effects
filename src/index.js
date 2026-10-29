@@ -133,7 +133,7 @@ export function createWeatherEffects({
     /** Line segments or polygons ({ points: [{x,y}...], room?, visible?() }), or a function returning them. */
     setSurfaces(source, { clearDeposits = true } = {}) { surfaceSource = source; invalidate({ clearDeposits }); },
     /** Drawable or paint function used for droplet refraction; null removes it. */
-    setBackground(source) { renderer.setBackground(source); invalidate(); },
+    setBackground(source, options) { renderer.setBackground(source, options); invalidate(); },
     setPointer(x, y) { pointer = Number.isFinite(x) && Number.isFinite(y) ? { x, y } : null; },
     invalidate,
     play() { playing = true; restart(); },

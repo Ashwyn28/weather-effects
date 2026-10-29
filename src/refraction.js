@@ -13,7 +13,7 @@ export function createRefractionLayer(scene, THREE) {
   const uniforms = {
     background: { value: texture }, resolution: { value: new THREE.Vector2(1, 1) },
     pageColor: { value: new THREE.Color() }, time: { value: 0 },
-    rain: { value: 0 }, frost: { value: 0 }, density: { value: .65 }, dark: { value: 0 }
+    rain: { value: 0 }, frost: { value: 0 }, density: { value: .65 }, dark: { value: 0 }, dropScale: { value: 750 }
   };
   const material = new THREE.ShaderMaterial({
     transparent: true, depthWrite: false, depthTest: false, uniforms,
@@ -22,6 +22,7 @@ export function createRefractionLayer(scene, THREE) {
       varying vec2 vUv;
       uniform sampler2D background;
       uniform vec2 resolution;
+      uniform float dropScale;
       uniform vec3 pageColor;
       uniform float time, rain, frost, density, dark;
       ${dropletFunctions}
@@ -33,7 +34,7 @@ export function createRefractionLayer(scene, THREE) {
         vec4 base = texture2D(background, vUv);
         if (base.a < .01) discard;
         // CSS pixel scale keeps droplets consistent on mobile and retina screens.
-        vec2 uv = vUv * resolution / 750.0;
+        vec2 uv = vUv * resolution / dropScale;
         vec4 moving, still;
         rainLayers(uv, time, 7.0, density, density*.55, moving, still);
         float coverage = saturate(moving.z + still.z);
@@ -88,7 +89,9 @@ export function createRefractionLayer(scene, THREE) {
     texture.needsUpdate = true;
   }
   return {
-    setBackground(next) { background = next || null; dirty = true; },
+    // dropSize: CSS pixels per drop-grid unit (default 750). Smaller values
+    // give smaller, closer drops, for small targets such as labels.
+    setBackground(next, { dropSize = 750 } = {}) { background = next || null; uniforms.dropScale.value = dropSize; dirty = true; },
     dispose() { texture.dispose(); material.dispose(); mesh.geometry.dispose(); scene.remove(mesh); },
     invalidate() { dirty = true; },
     resize(w, h) {

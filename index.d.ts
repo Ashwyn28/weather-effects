@@ -93,7 +93,8 @@ export interface WeatherEffects {
   /** Functions are called lazily, at most once per frame after invalidate(). Clears settled snow by default. */
   setSurfaces(source: SurfaceSource, options?: { clearDeposits?: boolean }): void;
   /** Used for droplet refraction and frost (WebGL only). Functions are repainted after invalidate() or a weather change. */
-  setBackground(source: BackgroundSource): void;
+  /** dropSize: CSS px per drop-grid unit (default 750); smaller gives smaller, denser drops for small targets. */
+  setBackground(source: BackgroundSource, options?: { dropSize?: number }): void;
   /** Pass null to clear. Snow and leaves move away from the pointer. */
   setPointer(x: number | null, y?: number): void;
   /** Re-read surfaces and repaint the background before the next frame. */

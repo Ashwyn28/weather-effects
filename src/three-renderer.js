@@ -129,7 +129,7 @@ export function createThreeRenderer(canvas, THREE, { pixelRatio, onLost, onResto
   }
   const api = {
     backend: 'threejs',
-    setBackground(source) { refraction.setBackground(source); },
+    setBackground(source, options) { refraction.setBackground(source, options); },
     invalidateBackground() { refraction.invalidate(); },
     resize(w, h) { refraction.resize(w,h); width = w; height = h; renderer.setSize(w, h, false); camera.right = w; camera.top = h; camera.updateProjectionMatrix(); atmosphere.position.set(w/2, h/2, -10); atmosphere.scale.set(w, h, 1); atmosphereMaterial.uniforms.aspect.value = w/h; },
     begin(condition, dark, time, state = {}) {
