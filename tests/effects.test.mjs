@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { hash32, particleRandom, particleVariant } from '../src/random.js';
-import { surfaceHit, settleSnow, windAt } from '../src/physics.js';
-import { CONDITIONS, isCondition } from '../src/conditions.js';
+import { hash32, particleRandom, particleVariant } from '../dist/random.js';
+import { surfaceHit, settleSnow, windAt } from '../dist/physics.js';
+import { CONDITIONS, isCondition } from '../dist/conditions.js';
 
 test('particle randomness is deterministic, bounded, uniform and wraps uint32 seeds', () => {
   assert.equal(hash32(0), 0);
@@ -53,7 +53,7 @@ test('live wind direction moves precipitation correctly and conditions are valid
 });
 
 test('simulation is deterministic for a seed and lands rain on supplied surfaces', async () => {
-  const { createSimulation } = await import('../src/simulation.js');
+  const { createSimulation } = await import('../dist/simulation.js');
   const shelf = { points: [{ x: 0, y: 300 }, { x: 800, y: 300 }] };
   const run = seed => {
     const sim = createSimulation({ seed });
@@ -70,7 +70,7 @@ test('simulation is deterministic for a seed and lands rain on supplied surfaces
 });
 
 test('snow settles on visible surfaces only and static steps do not move particles', async () => {
-  const { createSimulation } = await import('../src/simulation.js');
+  const { createSimulation } = await import('../dist/simulation.js');
   const sim = createSimulation({ seed: 3 });
   let shown = true;
   const desk = { points: [{ x: 0, y: 200 }, { x: 400, y: 200 }], visible: () => shown };
@@ -90,7 +90,7 @@ test('snow settles on visible surfaces only and static steps do not move particl
 });
 
 test('effects API drives the canvas fallback, seeks deterministically and validates input', async () => {
-  const { createWeatherEffects, CONDITIONS } = await import('../src/index.js');
+  const { createWeatherEffects, CONDITIONS } = await import('../dist/index.js');
   const calls = [];
   const ctx = new Proxy({}, { get: (_, key) => key === 'createRadialGradient' || key === 'createLinearGradient' ? () => ({ addColorStop() {} }) : (...args) => calls.push(key), set: () => true });
   const canvas = { dataset: {}, clientWidth: 320, clientHeight: 240, getContext: () => ctx };
@@ -114,7 +114,7 @@ test('effects API drives the canvas fallback, seeks deterministically and valida
 });
 
 test('backdrop falls back to 2D without WebGL2: full style paints a gradient, clouds style stays clear', async () => {
-  const { createWeatherEffects } = await import('../src/index.js');
+  const { createWeatherEffects } = await import('../dist/index.js');
   const fills = [], clears = [];
   const ctx = new Proxy({}, { get: (_, key) => key === 'createLinearGradient' || key === 'createRadialGradient' ? () => ({ addColorStop: (_, c) => fills.push(c) }) : key === 'clearRect' ? () => clears.push(1) : () => {}, set: () => true });
   const canvas = () => ({ dataset: {}, clientWidth: 200, clientHeight: 100, getContext: type => type === '2d' ? ctx : null });
