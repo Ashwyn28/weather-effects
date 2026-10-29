@@ -16,7 +16,7 @@ in vec2 vUv;
 out vec4 outColor;
 uniform sampler2D background;
 uniform vec2 resolution;
-uniform float time, rain, frost, density, dark, dropScale, seed, outside;
+uniform float time, rain, frost, density, stillDensity, dark, dropScale, seed, outside;
 ${dropletFunctions}
 // Refraction never pulls in what lies outside the glass (transparent areas).
 vec3 sampleScene(vec2 uv, vec3 fallback) { vec4 s = texture(background, clamp(uv, vec2(0.0), vec2(1.0))); return mix(fallback, s.rgb, smoothstep(.5, 1.0, s.a)); }
@@ -25,7 +25,7 @@ void main() {
   if (base.a < .01) discard;
   vec2 uv = vUv * resolution / dropScale;
   vec4 moving, still;
-  rainLayers(uv, time, seed, density, density * .55, moving, still);
+  rainLayers(uv, time, seed, density, stillDensity, moving, still);
   float coverage = saturate(moving.z + still.z);
   vec2 displacement = (moving.xy + still.xy) * .9;
   vec3 refracted = sampleScene(vUv - displacement, base.rgb);
@@ -38,6 +38,13 @@ void main() {
     : clamp(shading * 2.2 + (moving.w + still.w) * .12, -.18, .38);
   vec3 color = refracted + highlight * mix(1.0, outside > .5 ? 2.6 : 1.6, dark);
   float alpha = coverage * rain * (outside > .5 ? mix(.62, .85, dark) : 1.0);
+  // Against a bright daytime sky a clear drop shows mostly by its rim, which
+  // refracts the darker room and ground: shade rims and bodies slightly.
+  if (outside > .5) {
+    float rim = saturate((moving.w + still.w) * .9);
+    color *= 1.0 - (rim * .28 + coverage * .07) * (1.0 - dark);
+    alpha = max(alpha, rim * rain * .7 * (1.0 - dark));
+  }
 
   vec2 texel = 2.0 / resolution;
   float neighbors = texture(background, vUv + vec2(texel.x, 0)).a * texture(background, vUv - vec2(texel.x, 0)).a
@@ -93,7 +100,7 @@ export function createGlassDroplets({
     const vs = compile(gl.VERTEX_SHADER, VERTEX), fs = compile(gl.FRAGMENT_SHADER, FRAGMENT);
     gl.attachShader(program, vs); gl.attachShader(program, fs); gl.linkProgram(program);
     gl.deleteShader(vs); gl.deleteShader(fs);
-    uniforms = Object.fromEntries(['background', 'resolution', 'time', 'rain', 'frost', 'density', 'dark', 'dropScale', 'seed', 'outside']
+    uniforms = Object.fromEntries(['background', 'resolution', 'time', 'rain', 'frost', 'density', 'stillDensity', 'dark', 'dropScale', 'seed', 'outside']
       .map(name => [name, gl.getUniformLocation(program, name)]));
     vao = gl.createVertexArray();
     texture = gl.createTexture();
@@ -141,9 +148,12 @@ export function createGlassDroplets({
     gl.uniform1f(uniforms.time, time);
     gl.uniform1f(uniforms.rain, rain);
     gl.uniform1f(uniforms.frost, frost);
-    gl.uniform1f(uniforms.density, condition.includes('drizzle') ? .4 : ['showers', 'thunderstorm'].includes(condition) ? .85 : .65);
+    // Drizzle: a mist of small beads that rarely run. Heavier rain: more runs.
+    const drizzle = condition.includes('drizzle');
+    gl.uniform1f(uniforms.density, drizzle ? .22 : ['showers', 'thunderstorm'].includes(condition) ? .85 : .65);
+    gl.uniform1f(uniforms.stillDensity, drizzle ? .95 : ['showers', 'thunderstorm'].includes(condition) ? .47 : .36);
     gl.uniform1f(uniforms.dark, night ? 1 : 0);
-    gl.uniform1f(uniforms.dropScale, dropSize);
+    gl.uniform1f(uniforms.dropScale, dropSize * (drizzle ? .55 : 1));
     gl.uniform1f(uniforms.seed, seed);
     gl.uniform1f(uniforms.outside, side === 'outside' ? 1 : 0);
     gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
