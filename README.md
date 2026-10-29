@@ -42,7 +42,18 @@ const effects = createWeatherEffects({ canvas: weatherCanvas, skyCanvas: cloudsC
 
 Conditions ease into each other over about a second and a half.
 
-## Behaviour
+## Glass drops
+
+`createGlassDroplets({ canvas, dropSize })` puts water drops and frost on a small pane of glass, such as a window in an illustration, without Three.js or the page weather layer. Give it what is seen through the glass with `setBackground(painter)`; transparent areas stay clear. Call `setWeather(condition, { night })` to follow the page: drops form and slide in rain, frost gathers at the edges in freezing weather, and both fade out when it is dry.
+
+```js
+const glass = createGlassDroplets({ canvas: windowCanvas, dropSize: 70 });
+glass.setBackground((ctx, { width, height }) => ctx.drawImage(windowImage, 0, 0, width, height));
+glass.resize(windowCanvas.clientWidth, windowCanvas.clientHeight);
+glass.setWeather('rain', { night: false });
+```
+
+
 
 - **Conditions:** `clear`, `mainly-clear`, `partly-cloudy`, `overcast`, `fog`, `drizzle`, `freezing-drizzle`, `rain`, `freezing-rain`, `showers`, `snow`, `snow-showers`, `thunderstorm`, `hail`, `wind`. Mapping API data (for example WMO codes) to these ids is the caller's job.
 - **Surfaces:** two points make a ledge, more make a polygon. Swept collision stops fast rain tunnelling through thin edges. Rain splashes, hail bounces, snow settles and melts after the weather changes.

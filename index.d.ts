@@ -117,3 +117,21 @@ export function settleSnow(deposits: object[], hit: { x: number; y: number; angl
 export function hash32(x: number): number;
 export function particleRandom(seed: number, salt?: number): number;
 export function particleVariant(seed: number, bins?: number): number;
+
+export interface GlassDroplets {
+  readonly backend: 'webgl2';
+  setWeather(condition: WeatherCondition, options?: { night?: boolean }): void;
+  /** What is seen through the glass: a drawable, or a painter in CSS pixels. Transparent areas stay clear. */
+  setBackground(source: BackgroundSource): void;
+  invalidate(): void;
+  /** CSS pixels. */
+  resize(width: number, height: number): void;
+  play(): void;
+  pause(): void;
+  dispose(): void;
+}
+/** Water drops and frost on a small pane of glass (WebGL2, no Three.js). Returns null without WebGL2. */
+export function createGlassDroplets(options: {
+  canvas: HTMLCanvasElement; dropSize?: number; seed?: number; pixelRatio?: number;
+  reducedMotion?: MediaQueryList | { matches: boolean } | null;
+}): GlassDroplets | null;

@@ -6,6 +6,7 @@ import { isCondition } from './conditions.js';
 
 export { CONDITIONS, isCondition, isRain, isSnow, isFrozen, hasPrecipitation } from './conditions.js';
 export { createSimulation } from './simulation.js';
+export { createGlassDroplets } from './glass.js';
 export { windAt, surfaceHit, settleSnow } from './physics.js';
 export { hash32, particleRandom, particleVariant } from './random.js';
 
