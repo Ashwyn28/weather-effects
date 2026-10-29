@@ -1,10 +1,25 @@
+import type * as ThreeNS from 'three';
 import { createRefractionLayer } from './refraction.js';
+import type { BackgroundSource } from './refraction.js';
+import type { WeatherRenderer, RenderState } from './canvas-renderer.js';
+import type { WeatherCondition } from './conditions.js';
+import type { Particle, Impact, Droplet, Deposit } from './simulation.js';
+
+export interface ThreeRendererOptions {
+  pixelRatio?: number;
+  onLost?: () => void;
+  onRestored?: () => void;
+  atmosphere?: boolean;
+  lightRain?: boolean;
+}
+
+type ShapeKind = 'rain' | 'snow' | 'splash' | 'deposit' | 'trail' | 'wind';
 
 // Viewport coordinates (CSS pixels, y down) keep weather aligned with the
 // caller's surfaces. Throws when WebGL is unavailable.
 // atmosphere: draw sun, fog and clouds on this layer (off when a backdrop
 // canvas draws them). lightRain: light streaks for a dark full sky.
-export function createThreeRenderer(canvas, THREE, { pixelRatio, onLost, onRestored, atmosphere: showAtmosphere = true, lightRain = false } = {}) {
+export function createThreeRenderer(canvas: HTMLCanvasElement, THREE: typeof ThreeNS, { pixelRatio = 1, onLost, onRestored, atmosphere: showAtmosphere = true, lightRain = false }: ThreeRendererOptions = {}): WeatherRenderer {
   const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true, powerPreference: 'low-power' });
   renderer.setPixelRatio(pixelRatio);
   renderer.setClearColor(0, 0);
@@ -21,7 +36,7 @@ export function createThreeRenderer(canvas, THREE, { pixelRatio, onLost, onResto
   const vertexShader = `varying vec2 vUv; varying float vOpacity, vSoft, vSide;
     void main() { vUv = uv; vOpacity = instanceColor.r; vSoft = instanceColor.g; vSide = instanceColor.b;
       gl_Position = projectionMatrix * modelViewMatrix * instanceMatrix * vec4(position, 1.0); }`;
-  const shapes = {
+  const shapes: Record<ShapeKind, string> = {
     // Thin streak, brightest at the leading (lower) end; near drops blur wider.
     rain: `alpha = (1.0 - smoothstep(mix(.15, 0.0, vSoft), 1.0, abs(p.x)))
       * (1.0 - smoothstep(.7, 1.0, abs(p.y))) * mix(.1, 1.0, smoothstep(1.0, -.6, p.y));`,
@@ -46,7 +61,7 @@ export function createThreeRenderer(canvas, THREE, { pixelRatio, onLost, onResto
       shade = mix(color, color2, vSoft);
       shade *= mix(1.12, .82, vSide) * (1.0 - .25 * (1.0 - smoothstep(.0, .05, abs(p.y))));`
   };
-  function batch(kind, capacity) {
+  function batch(kind: ShapeKind, capacity: number) {
     const material = new THREE.ShaderMaterial({ transparent: true, depthWrite: false, depthTest: false,
       uniforms: { color: { value: new THREE.Color() }, color2: { value: new THREE.Color() } }, vertexShader,
       fragmentShader: `uniform vec3 color, color2; varying vec2 vUv; varying float vOpacity, vSoft, vSide;
@@ -119,7 +134,7 @@ export function createThreeRenderer(canvas, THREE, { pixelRatio, onLost, onResto
         #include <colorspace_fragment>
       }` });
   const atmosphere = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), atmosphereMaterial); atmosphere.renderOrder = -1; atmosphere.visible = showAtmosphere; scene.add(atmosphere);
-  function instance(mesh, x, y, z, sx, sy, angle, opacity = 1, g = 0, b = 0) {
+  function instance(mesh: ThreeNS.InstancedMesh, x: number, y: number, z: number, sx: number, sy: number, angle: number, opacity = 1, g = 0, b = 0): void {
     if (mesh.count >= mesh.instanceMatrix.count) return;
     transform.position.set(x, height - y, z); transform.rotation.set(0, 0, angle);
     transform.scale.set(sx, sy, mesh === hail ? sx : 1); transform.updateMatrix();
@@ -127,12 +142,12 @@ export function createThreeRenderer(canvas, THREE, { pixelRatio, onLost, onResto
     if (mesh !== hail) { const alpha = Math.max(0, Math.min(1, opacity)); tint.setRGB(alpha, g, b); mesh.setColorAt(mesh.count, tint); }
     mesh.count++;
   }
-  const api = {
+  const api: WeatherRenderer = {
     backend: 'threejs',
     setBackground(source, options) { refraction.setBackground(source, options); },
     invalidateBackground() { refraction.invalidate(); },
     resize(w, h) { refraction.resize(w,h); width = w; height = h; renderer.setSize(w, h, false); camera.right = w; camera.top = h; camera.updateProjectionMatrix(); atmosphere.position.set(w/2, h/2, -10); atmosphere.scale.set(w, h, 1); atmosphereMaterial.uniforms.aspect.value = w/h; },
-    begin(condition, dark, time, state = {}) {
+    begin(condition: WeatherCondition, dark: boolean, time: number, state: RenderState = {}) {
       refraction.update(condition, dark, time, state.reduced);
       batches.forEach(mesh => { mesh.count = 0; });
       const lightStreaks = lightRain || dark;
@@ -147,7 +162,7 @@ export function createThreeRenderer(canvas, THREE, { pixelRatio, onLost, onResto
       caps.material.uniforms.color.value.set('#f6fafb');
       atmosphereMaterial.uniforms.kind.value = ['clear', 'mainly-clear'].includes(condition) ? 1 : condition === 'fog' ? 3 : ['overcast','thunderstorm','hail','rain','showers','drizzle','freezing-rain','freezing-drizzle','snow','snow-showers'].includes(condition) ? 4 : condition === 'wind' ? 5 : condition === 'partly-cloudy' ? 2 : 0;
       atmosphereMaterial.uniforms.strength.value = ['thunderstorm','hail'].includes(condition) ? .7 : .4;
-      if (Number.isFinite(state.cloudCover) && atmosphereMaterial.uniforms.kind.value === 4) atmosphereMaterial.uniforms.strength.value *= .5 + state.cloudCover / 200;
+      if (state.cloudCover !== undefined && Number.isFinite(state.cloudCover) && atmosphereMaterial.uniforms.kind.value === 4) atmosphereMaterial.uniforms.strength.value *= .5 + state.cloudCover / 200;
       atmosphereMaterial.uniforms.wind.value = state.wind || 0;
       const stormPulse = Math.max(0, Math.sin(time / 1000 * Math.PI / 9));
       atmosphereMaterial.uniforms.flash.value = condition === 'thunderstorm' && !state.reduced ? Math.pow(stormPulse, 100) * .7 : 0;
@@ -189,11 +204,15 @@ export function createThreeRenderer(canvas, THREE, { pixelRatio, onLost, onResto
       canvas.removeEventListener('webglcontextlost', lose);
       canvas.removeEventListener('webglcontextrestored', restore);
       refraction.dispose();
-      scene.traverse(object => { object.geometry?.dispose(); object.material?.dispose(); });
+      scene.traverse(object => {
+        if (!(object instanceof THREE.Mesh)) return;
+        object.geometry.dispose();
+        for (const material of Array.isArray(object.material) ? object.material : [object.material]) material.dispose();
+      });
       renderer.dispose();
     }
   };
-  const lose = event => { event.preventDefault(); lost = true; canvas.hidden = true; onLost?.(); };
+  const lose = (event: Event) => { event.preventDefault(); lost = true; canvas.hidden = true; onLost?.(); };
   const restore = () => { lost = false; canvas.hidden = false; refraction.invalidate(); api.resize(width, height); onRestored?.(); };
   canvas.addEventListener('webglcontextlost', lose);
   canvas.addEventListener('webglcontextrestored', restore);

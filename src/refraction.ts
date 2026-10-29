@@ -1,11 +1,27 @@
+import type * as ThreeNS from 'three';
 import { dropletFunctions } from './droplet-shader.js';
+import type { WeatherCondition } from './conditions.js';
+
+export interface BackgroundInfo { width: number; height: number; night: boolean; }
+/** Paint in CSS pixels. Transparent areas receive no droplets or frost. */
+export type BackgroundPainter = (ctx: CanvasRenderingContext2D, info: BackgroundInfo) => { color?: string } | void;
+export type BackgroundSource = CanvasImageSource | BackgroundPainter | null;
+export interface BackgroundOptions { dropSize?: number; }
+
+export interface RefractionLayer {
+  setBackground(source: BackgroundSource, options?: BackgroundOptions): void;
+  dispose(): void;
+  invalidate(): void;
+  resize(width: number, height: number): void;
+  update(condition: WeatherCondition, dark: boolean, milliseconds: number, reduced?: boolean): void;
+}
 
 // Droplet refraction and frost over a caller-supplied background. The
 // background is redrawn into one texture only after invalidate() or a
 // condition/theme change, never per frame. Areas left transparent stay clear.
-export function createRefractionLayer(scene, THREE) {
-  const source = typeof OffscreenCanvas === 'function' && !globalThis.document ? new OffscreenCanvas(1, 1) : document.createElement('canvas');
-  const ctx = source.getContext('2d');
+export function createRefractionLayer(scene: ThreeNS.Scene, THREE: typeof ThreeNS): RefractionLayer {
+  const source: HTMLCanvasElement | OffscreenCanvas = typeof OffscreenCanvas === 'function' && !globalThis.document ? new OffscreenCanvas(1, 1) : document.createElement('canvas');
+  const ctx = source.getContext('2d') as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
   const texture = new THREE.CanvasTexture(source);
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.minFilter = THREE.LinearFilter;
@@ -68,12 +84,12 @@ export function createRefractionLayer(scene, THREE) {
   mesh.renderOrder = 2;
   mesh.frustumCulled = false;
   scene.add(mesh);
-  let width = 1, height = 1, dirty = true, lastTheme = '', previousTime, background = null;
+  let width = 1, height = 1, dirty = true, lastTheme = '', previousTime: number | undefined, background: BackgroundSource = null;
 
   // background: a drawable (image, canvas, video, ImageBitmap) stretched over
   // the viewport, or a function (ctx, { width, height, night }) that paints in
   // CSS pixels and may return { color } for the page colour behind it.
-  function capture(dark) {
+  function capture(dark: boolean) {
     dirty = false;
     if (!ctx) return;
     const scale = Math.min(1.5, 2048 / Math.max(width, height));
@@ -82,8 +98,8 @@ export function createRefractionLayer(scene, THREE) {
     if (w !== source.width || h !== source.height) texture.dispose();
     source.width = w; source.height = h;
     ctx.setTransform(scale, 0, 0, scale, 0, 0);
-    let color;
-    if (typeof background === 'function') color = background(ctx, { width, height, night: dark })?.color;
+    let color: string | undefined;
+    if (typeof background === 'function') color = background(ctx as CanvasRenderingContext2D, { width, height, night: dark })?.color;
     else if (background) ctx.drawImage(background, 0, 0, width, height);
     uniforms.pageColor.value.set(color || (dark ? '#232426' : '#f4f5f2'));
     texture.needsUpdate = true;

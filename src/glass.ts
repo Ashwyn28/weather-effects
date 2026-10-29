@@ -1,5 +1,41 @@
 import { dropletFunctions } from './droplet-shader.js';
 import { isRain, isFrozen } from './conditions.js';
+import type { WeatherCondition } from './conditions.js';
+import type { BackgroundSource } from './refraction.js';
+
+/** A MediaQueryList, or any object with `matches` and optional change listeners. */
+export interface ReducedMotion {
+  readonly matches: boolean;
+  addEventListener?(type: 'change', listener: () => void): void;
+  removeEventListener?(type: 'change', listener: () => void): void;
+}
+
+export interface GlassDropletsOptions {
+  /** The element to draw on (sized by CSS). */
+  canvas: HTMLCanvasElement;
+  /** CSS pixels per drop-grid unit; small panes want small values. Default 90. */
+  dropSize?: number;
+  seed?: number;
+  /** 'inside' (drops on the near surface) or 'outside' (rain on a window, seen through the glass). */
+  side?: 'inside' | 'outside';
+  pixelRatio?: number;
+  reducedMotion?: ReducedMotion | null;
+}
+
+export interface GlassDroplets {
+  readonly backend: 'webgl2';
+  setWeather(condition: WeatherCondition, options?: { night?: boolean }): void;
+  /** A drawable, or a function (ctx, { width, height, night }) painting in CSS pixels. */
+  setBackground(source: BackgroundSource): void;
+  invalidate(): void;
+  resize(width: number, height: number): void;
+  play(): void;
+  pause(): void;
+  dispose(): void;
+}
+
+type UniformName = 'background' | 'resolution' | 'time' | 'rain' | 'frost' | 'density' | 'stillDensity' | 'dark' | 'dropScale' | 'seed' | 'outside';
+const UNIFORM_NAMES: UniformName[] = ['background', 'resolution', 'time', 'rain', 'frost', 'density', 'stillDensity', 'dark', 'dropScale', 'seed', 'outside'];
 
 // Water drops (and frost) on a small pane of glass, independent of the page
 // weather layer and of Three.js. Draw it over any element, such as a window in
@@ -81,27 +117,31 @@ export function createGlassDroplets({
   canvas, dropSize = 90, seed = 7, side = 'inside',
   pixelRatio = Math.min(globalThis.devicePixelRatio || 1, 2),
   reducedMotion = globalThis.matchMedia?.('(prefers-reduced-motion: reduce)')
-} = {}) {
-  const gl = canvas.getContext('webgl2', { alpha: true, premultipliedAlpha: true, antialias: false, depth: false });
-  if (!gl) return null;
+}: GlassDropletsOptions): GlassDroplets | null {
+  const context = canvas.getContext('webgl2', { alpha: true, premultipliedAlpha: true, antialias: false, depth: false });
+  if (!context) return null;
+  const gl: WebGL2RenderingContext = context;
   const source = document.createElement('canvas');
   const ctx = source.getContext('2d');
-  let program, uniforms, texture, vao, lost = false;
-  let painter = null, dirty = true, width = 1, height = 1, condition = 'clear', night = false;
+  let program: WebGLProgram | null = null, uniforms = {} as Record<UniformName, WebGLUniformLocation | null>;
+  let texture: WebGLTexture | null = null, vao: WebGLVertexArrayObject | null = null, lost = false;
+  let painter: BackgroundSource = null, dirty = true, width = 1, height = 1, condition: WeatherCondition = 'clear', night = false;
   let rain = 0, frost = 0, time = 12, frame = 0, last = 0, playing = true, disposed = false;
 
   function build() {
-    const compile = (type, text) => {
-      const shader = gl.createShader(type); gl.shaderSource(shader, text); gl.compileShader(shader);
-      if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS) && !gl.isContextLost()) throw new Error(gl.getShaderInfoLog(shader));
+    const compile = (type: number, text: string) => {
+      const shader = gl.createShader(type);
+      if (!shader) throw new Error('Could not create shader');
+      gl.shaderSource(shader, text); gl.compileShader(shader);
+      if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS) && !gl.isContextLost()) throw new Error(gl.getShaderInfoLog(shader) ?? 'Shader compile failed');
       return shader;
     };
     program = gl.createProgram();
+    if (!program) throw new Error('Could not create program');
     const vs = compile(gl.VERTEX_SHADER, VERTEX), fs = compile(gl.FRAGMENT_SHADER, FRAGMENT);
     gl.attachShader(program, vs); gl.attachShader(program, fs); gl.linkProgram(program);
     gl.deleteShader(vs); gl.deleteShader(fs);
-    uniforms = Object.fromEntries(['background', 'resolution', 'time', 'rain', 'frost', 'density', 'stillDensity', 'dark', 'dropScale', 'seed', 'outside']
-      .map(name => [name, gl.getUniformLocation(program, name)]));
+    uniforms = Object.fromEntries(UNIFORM_NAMES.map(name => [name, gl.getUniformLocation(program!, name)])) as Record<UniformName, WebGLUniformLocation | null>;
     vao = gl.createVertexArray();
     texture = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, texture);
@@ -112,6 +152,7 @@ export function createGlassDroplets({
 
   function capture() {
     dirty = false;
+    if (!ctx) return;
     source.width = Math.max(1, Math.round(width * pixelRatio));
     source.height = Math.max(1, Math.round(height * pixelRatio));
     ctx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
@@ -129,7 +170,7 @@ export function createGlassDroplets({
   const icy = () => isFrozen(condition);
   const frostTarget = () => icy() ? (wet() ? .85 : .5) : 0;
 
-  function draw(dt) {
+  function draw(dt: number) {
     const blend = dt > 0 ? 1 - Math.exp(-dt * 1.5) : 1;
     rain += (Number(wet()) - rain) * blend;
     frost += (frostTarget() - frost) * blend;
@@ -160,7 +201,7 @@ export function createGlassDroplets({
     gl.drawArrays(gl.TRIANGLES, 0, 3);
   }
 
-  function loop(now) {
+  function loop(now: number) {
     frame = 0;
     if (disposed || document.hidden) { last = 0; return; }
     if (last && now - last < FRAME) { frame = requestAnimationFrame(loop); return; }
@@ -178,7 +219,7 @@ export function createGlassDroplets({
     frame = requestAnimationFrame(loop);
   }
 
-  const lose = event => { event.preventDefault(); lost = true; };
+  const lose = (event: Event) => { event.preventDefault(); lost = true; };
   const restore = () => { lost = false; build(); restart(); };
   canvas.addEventListener('webglcontextlost', lose);
   canvas.addEventListener('webglcontextrestored', restore);
