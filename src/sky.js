@@ -56,6 +56,8 @@ const FRAGMENT = `#version 300 es
 precision highp float;
 uniform vec2 resolution;
 uniform float time, scale, opaque, coverage, wispy, stars, mist, sun, flash, drift, reach;
+// 0 on desktop, rising to 1 on phones: denser, larger, brighter stars.
+uniform float compact;
 uniform vec3 top, bottom, cloudLight, cloudShadow;
 out vec4 color;
 
@@ -92,17 +94,22 @@ vec4 starField(vec2 px, float cell, float chance, float t) {
   vec2 id = floor(px / cell);
   float r = hash(id * 1.37 + cell);
   if (r > chance) return vec4(0.0);
-  vec2 d = px - (id + .15 + .7 * vec2(hash(id + 11.0), hash(id + 23.0))) * cell;
+  vec2 centre = (id + .15 + .7 * vec2(hash(id + 11.0), hash(id + 23.0))) * cell;
+  vec2 d = px - centre;
+  // Fade everything out before the cell edge, so no glow is cut off square.
+  vec2 inCell = centre - id * cell;
+  float room = min(min(inCell.x, cell - inCell.x), min(inCell.y, cell - inCell.y));
+  float window = 1.0 - smoothstep(room * .55, room * .95, length(d));
   float bright = pow(hash(id + 37.0), 3.0);
   float phase = hash(id + 51.0) * 6.2832, rate = .7 + 1.6 * hash(id + 61.0);
   float twinkle = .72 + .18 * sin(t * rate + phase) + .1 * sin(t * rate * 2.7 + phase * 3.1)
     + pow(max(0.0, sin(t * rate * .37 + phase * 5.0)), 24.0) * .5 * bright;
   float d2 = dot(d, d);
-  float core = exp(-d2 / (.3 + bright * .25));
-  float glow = exp(-sqrt(d2) / (1.2 + bright * 2.2)) * .2 * (.3 + bright);
+  float core = exp(-d2 / ((.3 + bright * .25) * (1.0 + compact * .7)));
+  float glow = exp(-sqrt(d2) / ((1.2 + bright * 2.2) * (1.0 + compact * .4))) * .2 * (.3 + bright) * (1.0 + compact * .6);
   float spikes = max(0.0, bright - .55) * .9 * (
       exp(-abs(d.x) * 2.2 - d.y * d.y / .12) + exp(-abs(d.y) * 2.2 - d.x * d.x / .12));
-  float light = (core * (.55 + .45 * bright) + glow + spikes) * twinkle;
+  float light = (core * (.55 + .45 * bright) + glow + spikes) * twinkle * window;
   vec3 tint = mix(vec3(1.0), mix(vec3(.78, .86, 1.0), vec3(1.0, .9, .76), hash(id + 71.0)), .55);
   return vec4(tint, clamp(light, 0.0, 1.0));
 }
@@ -150,8 +157,8 @@ void main() {
 
   // Clouds style: a sparse, dim band of stars near the top that fades out
   // well before the content. Full style: the whole sky.
-  float starBand = opaque > .5 ? 1.0 : smoothstep(.6, .95, uv.y);
-  vec4 star = starField(px, opaque > .5 ? 24.0 : 36.0, opaque > .5 ? .45 : .3, time);
+  float starBand = opaque > .5 ? 1.0 : smoothstep(mix(.6, .45, compact), .95, uv.y) * (1.0 + compact * .3);
+  vec4 star = starField(px, opaque > .5 ? 24.0 : mix(36.0, 24.0, compact), opaque > .5 ? .45 : mix(.3, .42, compact), time);
   if (opaque > .5) { vec4 faint = starField(px, 11.0, .1, time * 1.3); if (faint.a * .5 > star.a) star = vec4(faint.rgb, faint.a * .5); }
   col = over(col, star.rgb, clamp(stars * starBand * (1.0 - wisp * .8) * (1.0 - cloudAlpha) * star.a, 0.0, 1.0));
   col = over(col, mix(cloudLight, cloudShadow, .25), wisp * .55);
@@ -187,7 +194,7 @@ export function createSkyRenderer(canvas, { pixelRatio = 1, starPixelRatio = pix
   const gl = canvas.getContext('webgl2', { alpha: !opaque, premultipliedAlpha: true, antialias: false, depth: false, powerPreference: 'low-power' });
   if (!gl) return createGradientSky(canvas, opaque);
   let program, uniforms, vao, lost = false, width = 1, height = 1, state, ratio = pixelRatio;
-  const names = ['resolution', 'time', 'scale', 'opaque', 'coverage', 'wispy', 'stars', 'mist', 'sun', 'flash', 'drift', 'reach', 'top', 'bottom', 'cloudLight', 'cloudShadow'];
+  const names = ['resolution', 'time', 'scale', 'opaque', 'coverage', 'wispy', 'stars', 'mist', 'sun', 'flash', 'drift', 'reach', 'compact', 'top', 'bottom', 'cloudLight', 'cloudShadow'];
 
   function build() {
     const compile = (type, source) => {
@@ -240,6 +247,7 @@ export function createSkyRenderer(canvas, { pixelRatio = 1, starPixelRatio = pix
       gl.useProgram(program); gl.bindVertexArray(vao);
       gl.uniform2f(uniforms.resolution, canvas.width, canvas.height);
       gl.uniform1f(uniforms.scale, ratio);
+      gl.uniform1f(uniforms.compact, Math.min(1, Math.max(0, (760 - Math.min(width, height)) / 370)));
       gl.uniform1f(uniforms.time, time);
       gl.uniform1f(uniforms.opaque, opaque ? 1 : 0);
       gl.uniform1f(uniforms.flash, flash);
