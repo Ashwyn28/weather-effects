@@ -56,7 +56,7 @@ const FRAGMENT = `#version 300 es
 precision highp float;
 uniform vec2 resolution;
 uniform float time, scale, opaque, coverage, wispy, stars, mist, sun, flash, drift, reach;
-// 0 on desktop, rising to 1 on phones: denser, larger, brighter stars.
+// 0 on desktop, rising to 1 on phones: slightly denser and brighter stars.
 uniform float compact;
 uniform vec3 top, bottom, cloudLight, cloudShadow;
 out vec4 color;
@@ -105,8 +105,8 @@ vec4 starField(vec2 px, float cell, float chance, float t) {
   float twinkle = .72 + .18 * sin(t * rate + phase) + .1 * sin(t * rate * 2.7 + phase * 3.1)
     + pow(max(0.0, sin(t * rate * .37 + phase * 5.0)), 24.0) * .5 * bright;
   float d2 = dot(d, d);
-  float core = exp(-d2 / ((.3 + bright * .25) * (1.0 + compact * .7)));
-  float glow = exp(-sqrt(d2) / ((1.2 + bright * 2.2) * (1.0 + compact * .4))) * .2 * (.3 + bright) * (1.0 + compact * .6);
+  float core = exp(-d2 / ((.3 + bright * .25) * (1.0 + compact * .15)));
+  float glow = exp(-sqrt(d2) / (1.2 + bright * 2.2)) * .2 * (.3 + bright);
   float spikes = max(0.0, bright - .55) * .9 * (
       exp(-abs(d.x) * 2.2 - d.y * d.y / .12) + exp(-abs(d.y) * 2.2 - d.x * d.x / .12));
   float light = (core * (.55 + .45 * bright) + glow + spikes) * twinkle * window;
@@ -158,7 +158,7 @@ void main() {
   // Clouds style: a sparse, dim band of stars near the top that fades out
   // well before the content. Full style: the whole sky.
   float starBand = opaque > .5 ? 1.0 : smoothstep(mix(.6, .45, compact), .95, uv.y) * (1.0 + compact * .3);
-  vec4 star = starField(px, opaque > .5 ? 24.0 : mix(36.0, 24.0, compact), opaque > .5 ? .45 : mix(.3, .42, compact), time);
+  vec4 star = starField(px, opaque > .5 ? 24.0 : mix(36.0, 32.0, compact), opaque > .5 ? .45 : .3, time);
   if (opaque > .5) { vec4 faint = starField(px, 11.0, .1, time * 1.3); if (faint.a * .5 > star.a) star = vec4(faint.rgb, faint.a * .5); }
   col = over(col, star.rgb, clamp(stars * starBand * (1.0 - wisp * .8) * (1.0 - cloudAlpha) * star.a, 0.0, 1.0));
   col = over(col, mix(cloudLight, cloudShadow, .25), wisp * .55);
