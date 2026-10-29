@@ -4,10 +4,53 @@
 //   sun glow only; the page keeps its own background.
 // style 'full': opaque sky gradient as well, like a weather app.
 
-const hex = value => [1, 3, 5].map(i => parseInt(value.slice(i, i + 2), 16) / 255);
+import type { WeatherCondition } from './conditions.js';
+
+export type SkyStyle = 'clouds' | 'full';
+
+export interface SkyFrame {
+  condition: WeatherCondition;
+  night: boolean;
+  time: number;
+  /** Seconds since the last render; 0 jumps straight to the new look. */
+  dt?: number;
+  wind?: number;
+  cloudCover?: number;
+  flash?: number;
+}
+
+export interface SkyRenderer {
+  readonly backend: 'webgl2' | 'canvas';
+  readonly style: SkyStyle;
+  readonly available: boolean;
+  resize(width: number, height: number): void;
+  render(frame: SkyFrame): void;
+  dispose(): void;
+}
+
+export interface SkyRendererOptions {
+  pixelRatio?: number;
+  starPixelRatio?: number;
+  style?: SkyStyle;
+  onRestored?: () => void;
+}
+
+type Vec3 = [number, number, number];
+type Palette = 'clear' | 'partly' | 'cloudy' | 'rain' | 'storm' | 'snow' | 'fog';
+type Colors4 = [string, string, string, string];
+type Look = [Palette, number, number, number, number, number, number, number];
+
+interface SkyState {
+  top: Vec3; bottom: Vec3; cloudLight: Vec3; cloudShadow: Vec3;
+  coverage: number; wispy: number; stars: number; mist: number; sun: number; reach: number; drift: number;
+}
+type ScalarKey = { [K in keyof SkyState]: SkyState[K] extends number ? K : never }[keyof SkyState];
+type VectorKey = Exclude<keyof SkyState, ScalarKey>;
+
+const hex = (value: string): Vec3 => [1, 3, 5].map(i => parseInt(value.slice(i, i + 2), 16) / 255) as Vec3;
 
 // Full style: [top, bottom, cloud light, cloud shadow]
-const SKIES = {
+const SKIES: Record<Palette, { day: Colors4; night: Colors4 }> = {
   clear:  { day: ['#2a63c4', '#8dbbe9', '#ffffff', '#b4c7dc'], night: ['#11142e', '#393c6b', '#5f6192', '#24264a'] },
   partly: { day: ['#2f68c4', '#93bfe8', '#ffffff', '#a9bdd3'], night: ['#222347', '#4c4b7c', '#7c7ab0', '#2a2a4c'] },
   cloudy: { day: ['#5b7084', '#a4b3c1', '#e6ebf0', '#6f7d8b'], night: ['#222347', '#4c4b7c', '#7c7ab0', '#2a2a4c'] },
@@ -19,7 +62,7 @@ const SKIES = {
 
 // Clouds style, over the caller's page: [lit, shadow]. Day tones suit a light
 // page; night tones a dark one.
-const TONES = {
+const TONES: Record<Palette, { day: [string, string]; night: [string, string] }> = {
   clear:  { day: ['#ffffff', '#b7c9da'], night: ['#505b70', '#262e42'] },
   partly: { day: ['#eef2f6', '#8b9bab'], night: ['#535e74', '#262e42'] },
   cloudy: { day: ['#e9edf0', '#8f9ba6'], night: ['#4f5a6f', '#222a3d'] },
@@ -31,7 +74,7 @@ const TONES = {
 
 // tones, coverage, wisps, stars, mist, sun, reach (fraction of the height
 // that clouds extend down from the top in clouds style), drift speed
-const LOOKS = {
+const LOOKS: Record<WeatherCondition, Look> = {
   'clear':            ['clear',  .46, 0,   1,  0,  1,  .3,  .7],
   'mainly-clear':     ['clear',  .38, .22, .7, 0,  .8, .35, 1],
   'partly-cloudy':    ['partly', .6,  .3,  .4, 0,  .5, .45, 1],
@@ -169,57 +212,65 @@ void main() {
   color = col;
 }`;
 
-function target(condition, night, cloudCover, style) {
+type UniformName = 'resolution' | 'time' | 'scale' | 'opaque' | 'coverage' | 'wispy' | 'stars' | 'mist' | 'sun' | 'flash' | 'drift' | 'reach' | 'compact' | 'top' | 'bottom' | 'cloudLight' | 'cloudShadow';
+
+function target(condition: WeatherCondition, night: boolean, cloudCover: number | undefined, style: SkyStyle): SkyState {
   const [palette, coverage, wispy, stars, mist, sun, reach, drift] = LOOKS[condition] || LOOKS.clear;
   const time = night ? 'night' : 'day';
-  const colors = style === 'full' ? SKIES[palette][time] : ['#000000', '#000000', ...TONES[palette][time]];
-  const [top, bottom, cloudLight, cloudShadow] = colors.map(hex);
-  const cover = Number.isFinite(cloudCover) && coverage > 0 && coverage < .9 ? Math.min(.95, coverage * (.6 + cloudCover / 125)) : coverage;
+  const colors: Colors4 = style === 'full' ? SKIES[palette][time] : ['#000000', '#000000', ...TONES[palette][time]];
+  const [top, bottom, cloudLight, cloudShadow] = colors.map(hex) as [Vec3, Vec3, Vec3, Vec3];
+  const cover = cloudCover !== undefined && Number.isFinite(cloudCover) && coverage > 0 && coverage < .9 ? Math.min(.95, coverage * (.6 + cloudCover / 125)) : coverage;
   // Clear nights stay cloudless so the stars show; clear days get a few small clouds.
   const clearNight = night && condition === 'clear';
   return { top, bottom, cloudLight, cloudShadow, coverage: clearNight ? 0 : cover, wispy, stars: night ? stars : 0, mist, sun: night ? 0 : sun, reach, drift };
 }
 
-const lerp = (a, b, t) => a + (b - a) * t;
-function blend(current, next, t) {
+const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
+const SCALARS: ScalarKey[] = ['coverage', 'wispy', 'stars', 'mist', 'sun', 'reach', 'drift'];
+const VECTORS: VectorKey[] = ['top', 'bottom', 'cloudLight', 'cloudShadow'];
+function blend(current: SkyState | undefined, next: SkyState, t: number): SkyState {
   if (!current) return structuredClone(next);
-  for (const key of Object.keys(next)) {
-    current[key] = Array.isArray(next[key]) ? current[key].map((v, i) => lerp(v, next[key][i], t)) : lerp(current[key], next[key], t);
-  }
+  for (const key of SCALARS) current[key] = lerp(current[key], next[key], t);
+  for (const key of VECTORS) current[key] = current[key].map((v, i) => lerp(v, next[key][i], t)) as Vec3;
   return current;
 }
 
 // pixelRatio: resolution for clouds (soft, so 1 is enough). starPixelRatio:
 // used when only stars are showing, so they stay pin-sharp on dense screens.
-export function createSkyRenderer(canvas, { pixelRatio = 1, starPixelRatio = pixelRatio, style = 'clouds', onRestored } = {}) {
+export function createSkyRenderer(canvas: HTMLCanvasElement, { pixelRatio = 1, starPixelRatio = pixelRatio, style = 'clouds', onRestored }: SkyRendererOptions = {}): SkyRenderer {
   const opaque = style === 'full';
-  const gl = canvas.getContext('webgl2', { alpha: !opaque, premultipliedAlpha: true, antialias: false, depth: false, powerPreference: 'low-power' });
-  if (!gl) return createGradientSky(canvas, opaque);
-  let program, uniforms, vao, lost = false, width = 1, height = 1, state, ratio = pixelRatio;
-  const names = ['resolution', 'time', 'scale', 'opaque', 'coverage', 'wispy', 'stars', 'mist', 'sun', 'flash', 'drift', 'reach', 'compact', 'top', 'bottom', 'cloudLight', 'cloudShadow'];
+  const context = canvas.getContext('webgl2', { alpha: !opaque, premultipliedAlpha: true, antialias: false, depth: false, powerPreference: 'low-power' });
+  if (!context) return createGradientSky(canvas, opaque);
+  const gl: WebGL2RenderingContext = context;
+  let program: WebGLProgram | null = null, uniforms = {} as Record<UniformName, WebGLUniformLocation | null>;
+  let vao: WebGLVertexArrayObject | null = null, lost = false, width = 1, height = 1, state: SkyState | undefined, ratio = pixelRatio;
+  const names: UniformName[] = ['resolution', 'time', 'scale', 'opaque', 'coverage', 'wispy', 'stars', 'mist', 'sun', 'flash', 'drift', 'reach', 'compact', 'top', 'bottom', 'cloudLight', 'cloudShadow'];
 
   function build() {
-    const compile = (type, source) => {
+    const compile = (type: number, source: string) => {
       const shader = gl.createShader(type);
+      if (!shader) throw new Error('Could not create shader');
       gl.shaderSource(shader, source); gl.compileShader(shader);
-      if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS) && !gl.isContextLost()) throw new Error(gl.getShaderInfoLog(shader));
+      if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS) && !gl.isContextLost()) throw new Error(gl.getShaderInfoLog(shader) ?? 'Shader compile failed');
       return shader;
     };
-    program = gl.createProgram();
+    const linked = gl.createProgram();
+    if (!linked) throw new Error('Could not create program');
+    program = linked;
     const vs = compile(gl.VERTEX_SHADER, VERTEX), fs = compile(gl.FRAGMENT_SHADER, FRAGMENT);
     gl.attachShader(program, vs); gl.attachShader(program, fs); gl.linkProgram(program);
     gl.deleteShader(vs); gl.deleteShader(fs);
-    uniforms = Object.fromEntries(names.map(name => [name, gl.getUniformLocation(program, name)]));
+    uniforms = Object.fromEntries(names.map(name => [name, gl.getUniformLocation(linked, name)])) as Record<UniformName, WebGLUniformLocation | null>;
     vao = gl.createVertexArray();
   }
   build();
 
-  const lose = event => { event.preventDefault(); lost = true; };
+  const lose = (event: Event) => { event.preventDefault(); lost = true; };
   const restore = () => { lost = false; build(); api.resize(width, height); onRestored?.(); };
   canvas.addEventListener('webglcontextlost', lose);
   canvas.addEventListener('webglcontextrestored', restore);
 
-  const api = {
+  const api: SkyRenderer = {
     backend: 'webgl2',
     style,
     get available() { return !lost; },
@@ -243,7 +294,7 @@ export function createSkyRenderer(canvas, { pixelRatio = 1, starPixelRatio = pix
           canvas.width !== Math.max(1, Math.round(w * wanted)) || canvas.height !== Math.max(1, Math.round(h * wanted))) {
         ratio = wanted; api.resize(w, h);
       }
-      if (lost) return;
+      if (lost || !state) return;
       gl.viewport(0, 0, canvas.width, canvas.height);
       gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
       gl.useProgram(program); gl.bindVertexArray(vao);
@@ -253,8 +304,8 @@ export function createSkyRenderer(canvas, { pixelRatio = 1, starPixelRatio = pix
       gl.uniform1f(uniforms.time, time);
       gl.uniform1f(uniforms.opaque, opaque ? 1 : 0);
       gl.uniform1f(uniforms.flash, flash);
-      for (const key of ['coverage', 'wispy', 'stars', 'mist', 'sun', 'reach', 'drift']) gl.uniform1f(uniforms[key], state[key]);
-      for (const key of ['top', 'bottom', 'cloudLight', 'cloudShadow']) gl.uniform3fv(uniforms[key], state[key]);
+      for (const key of SCALARS) gl.uniform1f(uniforms[key], state[key]);
+      for (const key of VECTORS) gl.uniform3fv(uniforms[key], state[key]);
       gl.drawArrays(gl.TRIANGLES, 0, 3);
     },
     dispose() {
@@ -267,7 +318,7 @@ export function createSkyRenderer(canvas, { pixelRatio = 1, starPixelRatio = pix
 }
 
 // Without WebGL2: the full style keeps its gradient; clouds style draws nothing.
-function createGradientSky(canvas, opaque) {
+function createGradientSky(canvas: HTMLCanvasElement, opaque: boolean): SkyRenderer {
   const ctx = canvas.getContext('2d');
   let width = 1, height = 1;
   return {

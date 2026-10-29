@@ -1,11 +1,37 @@
+import type { WeatherCondition } from './conditions.js';
+import type { Particle, Impact, Droplet, Deposit } from './simulation.js';
+import type { BackgroundSource, BackgroundOptions } from './refraction.js';
+
+export interface RenderState {
+  wind?: number;
+  cloudCover?: number;
+  reduced?: boolean;
+}
+
+/** The contract shared by the Three.js and 2D canvas renderers. */
+export interface WeatherRenderer {
+  readonly backend: 'threejs' | 'canvas';
+  readonly available: boolean;
+  resize(width: number, height: number): void;
+  begin(condition: WeatherCondition, night: boolean, time: number, state?: RenderState): void;
+  particle(p: Particle, condition: WeatherCondition, night: boolean): void;
+  splash(impact: Impact): void;
+  droplet(drop: Droplet): void;
+  deposit(deposit: Deposit): void;
+  render(): void;
+  setBackground(source: BackgroundSource, options?: BackgroundOptions): void;
+  invalidateBackground(): void;
+  dispose(): void;
+}
+
 // 2D fallback: precipitation, splashes and settled snow, without refraction or frost.
-export function createCanvasRenderer(canvas, { pixelRatio } = {}) {
+export function createCanvasRenderer(canvas: HTMLCanvasElement, { pixelRatio = 1 }: { pixelRatio?: number } = {}): WeatherRenderer {
   const ctx = canvas.getContext('2d');
-  let width, height, dark;
+  let width = 1, height = 1, dark = false;
   return {
     backend: 'canvas',
     setBackground() {}, invalidateBackground() {}, dispose() {},
-    resize(w, h) {
+    resize(w: number, h: number) {
       width = w; height = h;
       canvas.width = w * pixelRatio; canvas.height = h * pixelRatio;
       ctx?.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
