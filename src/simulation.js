@@ -48,8 +48,9 @@ export function createSimulation({ seed = 0 } = {}) {
       : condition.includes('drizzle') ? 6000 : condition === 'showers' ? 3200 : condition === 'thunderstorm' ? 2800 : condition === 'hail' ? 7500 : 4200;
     const intensity = Number.isFinite(reading.precipitation) ? clamp(.7 + reading.precipitation * .25, .6, 1.6) : 1;
     const cap = isRain(condition) ? 640 : condition === 'wind' ? 30 : isSnow(condition) ? 300 : 240;
-    // Phones are viewed close up, so a pure per-area count looks sparse there.
-    const small = Math.min(2.2, Math.max(1, 760 / Math.max(1, Math.min(width, height))));
+    // Fine drizzle is hard to see on a phone, so it alone gets extra drops on
+    // small screens. Every other condition keeps a plain per-area count.
+    const small = condition.includes('drizzle') ? Math.min(2.2, Math.max(1, 760 / Math.max(1, Math.min(width, height)))) : 1;
     return Math.min(cap, Math.round(width * height / density * intensity * small * (saveData ? .5 : 1)));
   }
 
