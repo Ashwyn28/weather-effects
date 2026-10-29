@@ -16,7 +16,7 @@ in vec2 vUv;
 out vec4 outColor;
 uniform sampler2D background;
 uniform vec2 resolution;
-uniform float time, rain, frost, density, dark, dropScale, seed;
+uniform float time, rain, frost, density, dark, dropScale, seed, outside;
 ${dropletFunctions}
 // Refraction never pulls in what lies outside the glass (transparent areas).
 vec3 sampleScene(vec2 uv, vec3 fallback) { vec4 s = texture(background, clamp(uv, vec2(0.0), vec2(1.0))); return mix(fallback, s.rgb, smoothstep(.5, 1.0, s.a)); }
@@ -29,10 +29,15 @@ void main() {
   float coverage = saturate(moving.z + still.z);
   vec2 displacement = (moving.xy + still.xy) * .9;
   vec3 refracted = sampleScene(vUv - displacement, base.rgb);
-  // Light catches the top of each drop and its rim; the underside darkens.
-  float highlight = clamp(-(moving.y + still.y) * 2.2 + (moving.w + still.w) * .12, -.18, .38);
-  vec3 color = refracted + highlight * mix(1.0, 1.6, dark);
-  float alpha = coverage * rain;
+  // Inside the glass, light catches the top of each drop and its rim. Seen
+  // through the glass from inside, outside drops are lit from behind: a soft
+  // bright lower edge, no crisp rim, and lower contrast overall.
+  float shading = -(moving.y + still.y);
+  float highlight = outside > .5
+    ? clamp(-shading * 1.3, -.08, .2)
+    : clamp(shading * 2.2 + (moving.w + still.w) * .12, -.18, .38);
+  vec3 color = refracted + highlight * mix(1.0, outside > .5 ? 2.6 : 1.6, dark);
+  float alpha = coverage * rain * (outside > .5 ? mix(.62, .85, dark) : 1.0);
 
   vec2 texel = 2.0 / resolution;
   float neighbors = texture(background, vUv + vec2(texel.x, 0)).a * texture(background, vUv - vec2(texel.x, 0)).a
@@ -44,7 +49,15 @@ void main() {
   float ice = (1.0 - smoothstep(.1, .6, length(p))) * branches;
   float frozen = frost * clamp((1.0 - neighbors) * .7 + ice * .4 + grain * .08, 0.0, .75);
   color = mix(color, mix(vec3(.86, .92, .96), vec3(.6, .72, .84), dark), frozen);
-  alpha = max(alpha, frozen) * base.a;
+  alpha = max(alpha, frozen);
+  // Outside: a faint reflection on the glass sits in front of the drops.
+  if (outside > .5) {
+    float sheen = (.05 + .07 * smoothstep(.2, 1.0, vUv.y + vUv.x * .3)) * max(rain, frost) * mix(1.0, .45, dark);
+    vec3 reflection = mix(vec3(1.0), vec3(.62, .7, .85), dark);
+    color = mix(color, reflection, sheen / max(alpha + sheen, .001));
+    alpha = alpha + sheen * (1.0 - alpha);
+  }
+  alpha *= base.a;
   if (alpha < .002) discard;
   outColor = vec4(color * alpha, alpha);
 }`;
@@ -53,10 +66,12 @@ const FRAME = 1000 / 30;
 
 /**
  * canvas: the element to draw on (sized by CSS). dropSize: CSS pixels per
- * drop-grid unit; small panes want small values. Returns null without WebGL2.
+ * drop-grid unit; small panes want small values. side: 'inside' (drops on the
+ * near surface) or 'outside' (rain on a window, seen through the glass).
+ * Returns null without WebGL2.
  */
 export function createGlassDroplets({
-  canvas, dropSize = 90, seed = 7,
+  canvas, dropSize = 90, seed = 7, side = 'inside',
   pixelRatio = Math.min(globalThis.devicePixelRatio || 1, 2),
   reducedMotion = globalThis.matchMedia?.('(prefers-reduced-motion: reduce)')
 } = {}) {
@@ -78,7 +93,7 @@ export function createGlassDroplets({
     const vs = compile(gl.VERTEX_SHADER, VERTEX), fs = compile(gl.FRAGMENT_SHADER, FRAGMENT);
     gl.attachShader(program, vs); gl.attachShader(program, fs); gl.linkProgram(program);
     gl.deleteShader(vs); gl.deleteShader(fs);
-    uniforms = Object.fromEntries(['background', 'resolution', 'time', 'rain', 'frost', 'density', 'dark', 'dropScale', 'seed']
+    uniforms = Object.fromEntries(['background', 'resolution', 'time', 'rain', 'frost', 'density', 'dark', 'dropScale', 'seed', 'outside']
       .map(name => [name, gl.getUniformLocation(program, name)]));
     vao = gl.createVertexArray();
     texture = gl.createTexture();
@@ -130,6 +145,7 @@ export function createGlassDroplets({
     gl.uniform1f(uniforms.dark, night ? 1 : 0);
     gl.uniform1f(uniforms.dropScale, dropSize);
     gl.uniform1f(uniforms.seed, seed);
+    gl.uniform1f(uniforms.outside, side === 'outside' ? 1 : 0);
     gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
   }

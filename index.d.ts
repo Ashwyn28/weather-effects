@@ -133,5 +133,7 @@ export interface GlassDroplets {
 /** Water drops and frost on a small pane of glass (WebGL2, no Three.js). Returns null without WebGL2. */
 export function createGlassDroplets(options: {
   canvas: HTMLCanvasElement; dropSize?: number; seed?: number; pixelRatio?: number;
+  /** 'inside' (default): drops on the near surface. 'outside': rain on a window, seen through the glass. */
+  side?: 'inside' | 'outside';
   reducedMotion?: MediaQueryList | { matches: boolean } | null;
 }): GlassDroplets | null;
