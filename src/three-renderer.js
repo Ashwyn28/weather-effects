@@ -175,7 +175,8 @@ export function createThreeRenderer(canvas, THREE, { pixelRatio, onLost, onResto
         const angle = Math.atan2(p.vx, p.vy);
         // Drizzle drops are fine, so each streak is thinner but a little more opaque.
         const opacity = (lightRain || dark ? .12 + depth * .38 : .16 + depth * .36) * (1 - blur * .35) * (drizzle ? 1.15 : 1);
-        instance(drops, p.x - Math.sin(angle)*length/2, p.y - Math.cos(angle)*length/2, depth*30, (.55 + depth*.75) * (1 + blur * .8) * (drizzle ? .75 : 1), length, angle, opacity, blur);
+        const shown = drizzle ? Math.max(opacity, width < 700 ? .34 : .24) : opacity;
+        instance(drops, p.x - Math.sin(angle)*length/2, p.y - Math.cos(angle)*length/2, depth*30, Math.max(drizzle && width < 700 ? .85 : 0, (.55 + depth*.75) * (1 + blur * .8) * (drizzle ? .75 : 1)), length, angle, shown, blur);
       }
     },
     // A crown that opens out from the impact, with spray thrown up around it.
