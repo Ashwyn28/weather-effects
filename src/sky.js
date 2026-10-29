@@ -20,7 +20,7 @@ const SKIES = {
 // Clouds style, over the caller's page: [lit, shadow]. Day tones suit a light
 // page; night tones a dark one.
 const TONES = {
-  clear:  { day: ['#f1f4f7', '#97a6b4'], night: ['#505b70', '#262e42'] },
+  clear:  { day: ['#ffffff', '#b7c9da'], night: ['#505b70', '#262e42'] },
   partly: { day: ['#eef2f6', '#8b9bab'], night: ['#535e74', '#262e42'] },
   cloudy: { day: ['#e9edf0', '#8f9ba6'], night: ['#4f5a6f', '#222a3d'] },
   rain:   { day: ['#d3d9df', '#7d8996'], night: ['#4f5a70', '#1f2638'] },
@@ -32,7 +32,7 @@ const TONES = {
 // tones, coverage, wisps, stars, mist, sun, reach (fraction of the height
 // that clouds extend down from the top in clouds style), drift speed
 const LOOKS = {
-  'clear':            ['clear',  0,   0,   1,  0,  1,  .3,  1],
+  'clear':            ['clear',  .46, 0,   1,  0,  1,  .3,  .7],
   'mainly-clear':     ['clear',  .38, .22, .7, 0,  .8, .35, 1],
   'partly-cloudy':    ['partly', .6,  .3,  .4, 0,  .5, .45, 1],
   'overcast':         ['cloudy', .9,  .25, .1, 0,  0,  .5,  .8],
@@ -175,7 +175,9 @@ function target(condition, night, cloudCover, style) {
   const colors = style === 'full' ? SKIES[palette][time] : ['#000000', '#000000', ...TONES[palette][time]];
   const [top, bottom, cloudLight, cloudShadow] = colors.map(hex);
   const cover = Number.isFinite(cloudCover) && coverage > 0 && coverage < .9 ? Math.min(.95, coverage * (.6 + cloudCover / 125)) : coverage;
-  return { top, bottom, cloudLight, cloudShadow, coverage: cover, wispy, stars: night ? stars : 0, mist, sun: night ? 0 : sun, reach, drift };
+  // Clear nights stay cloudless so the stars show; clear days get a few small clouds.
+  const clearNight = night && condition === 'clear';
+  return { top, bottom, cloudLight, cloudShadow, coverage: clearNight ? 0 : cover, wispy, stars: night ? stars : 0, mist, sun: night ? 0 : sun, reach, drift };
 }
 
 const lerp = (a, b, t) => a + (b - a) * t;
