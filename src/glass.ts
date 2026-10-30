@@ -1,6 +1,7 @@
 import { dropletFunctions } from './droplet-shader.js';
 import { isRain, isFrozen } from './conditions.js';
 import type { WeatherCondition } from './conditions.js';
+import { PROFILES } from './profiles.js';
 import type { BackgroundSource } from './refraction.js';
 
 /** A MediaQueryList, or any object with `matches` and optional change listeners. */
@@ -260,17 +261,11 @@ export function createGlassDroplets({
     gl.uniform1f(uniforms.rain, rain);
     gl.uniform1f(uniforms.frost, frost);
     // Drizzle: a mist of small beads that rarely run. Heavier rain: more runs.
-    const drizzle = condition.includes('drizzle');
-    gl.uniform1f(
-      uniforms.density,
-      drizzle ? 0.22 : ['showers', 'thunderstorm'].includes(condition) ? 0.85 : 0.65,
-    );
-    gl.uniform1f(
-      uniforms.stillDensity,
-      drizzle ? 0.95 : ['showers', 'thunderstorm'].includes(condition) ? 0.47 : 0.36,
-    );
+    const profile = PROFILES[condition].glass;
+    gl.uniform1f(uniforms.density, profile.density);
+    gl.uniform1f(uniforms.stillDensity, profile.stillDensity);
     gl.uniform1f(uniforms.dark, night ? 1 : 0);
-    gl.uniform1f(uniforms.dropScale, dropSize * (drizzle ? 0.55 : 1));
+    gl.uniform1f(uniforms.dropScale, dropSize * profile.dropScale);
     gl.uniform1f(uniforms.seed, seed);
     gl.uniform1f(uniforms.outside, side === 'outside' ? 1 : 0);
     gl.enable(gl.BLEND);

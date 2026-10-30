@@ -3,6 +3,7 @@ import { clamp, windAt, surfaceHit, settleSnow } from './physics.js';
 import type { Point, Surface, SurfaceHit, WeatherReading } from './physics.js';
 import { isRain, isSnow, hasPrecipitation } from './conditions.js';
 import type { WeatherCondition } from './conditions.js';
+import { PROFILES } from './profiles.js';
 
 export interface Particle {
   x: number;
@@ -88,20 +89,17 @@ export function createSimulation({ seed = 0 }: { seed?: number } = {}): Simulati
   }
 
   function spawn(initial = false): Particle {
-    const snowy = isSnow(condition),
-      windy = condition === 'wind';
+    const { kind, fall } = PROFILES[condition].precipitation;
+    const snowy = kind === 'snow',
+      windy = kind === 'leaves';
     const depth = random(),
       scale = 0.45 + depth * 1.15;
     const particle: Particle = {
       x: windy && !initial ? (wind < 0 ? width + 30 : -30) : random() * (width + 240) - 120,
       y: initial || windy ? random() * height : -30,
       vx: wind * scale,
-      vy: windy
-        ? 12
-        : snowy
-          ? (22 + random() * 25) * scale
-          : (condition.includes('drizzle') ? 330 + random() * 90 : 620 + random() * 220) * scale,
-      size: snowy ? 1 + random() * 2 : condition === 'hail' ? 2.5 : 1,
+      vy: windy ? fall.base : (fall.base + random() * fall.range) * scale,
+      size: snowy ? 1 + random() * 2 : kind === 'hail' ? 2.5 : 1,
       phase: particleVariant(++serial) * Math.PI * 2,
       depth,
       bounced: false,
@@ -141,33 +139,14 @@ export function createSimulation({ seed = 0 }: { seed?: number } = {}): Simulati
   }
 
   function targetCount(saveData: boolean) {
-    const density =
-      condition === 'wind'
-        ? 55000
-        : condition === 'snow-showers'
-          ? 5000
-          : isSnow(condition)
-            ? 7500
-            : // Drops per pixel area: drizzle is lightest, then rain, then showers and storms.
-              condition.includes('drizzle')
-              ? 6000
-              : condition === 'showers'
-                ? 3200
-                : condition === 'thunderstorm'
-                  ? 2800
-                  : condition === 'hail'
-                    ? 7500
-                    : 4200;
+    const { density, cap, fine } = PROFILES[condition].precipitation;
     const intensity =
       reading.precipitation !== undefined && Number.isFinite(reading.precipitation)
         ? clamp(0.7 + reading.precipitation * 0.25, 0.6, 1.6)
         : 1;
-    const cap = isRain(condition) ? 640 : condition === 'wind' ? 30 : isSnow(condition) ? 300 : 240;
     // Drizzle gets a small boost on phones (its streaks are also drawn wider
     // there), kept low enough that it never has more drops than rain.
-    const small = condition.includes('drizzle')
-      ? Math.min(1.3, Math.max(1, 760 / Math.max(1, Math.min(width, height))))
-      : 1;
+    const small = fine ? Math.min(1.3, Math.max(1, 760 / Math.max(1, Math.min(width, height)))) : 1;
     return Math.min(
       cap,
       Math.round(((width * height) / density) * intensity * small * (saveData ? 0.5 : 1)),
@@ -178,9 +157,12 @@ export function createSimulation({ seed = 0 }: { seed?: number } = {}): Simulati
   function step(dt: number, { surfaces = [], pointer, saveData = false }: StepOptions = {}) {
     elapsed += dt;
     wind = windAt(reading, condition, elapsed);
+    const { kind } = PROFILES[condition].precipitation;
     const moving = dt > 0,
       snowy = isSnow(condition),
-      rainy = isRain(condition);
+      rainy = isRain(condition),
+      windy = kind === 'leaves',
+      hail = kind === 'hail';
     if (hasPrecipitation(condition)) {
       const count = targetCount(saveData);
       if (particles.length > count) particles.length = count;
@@ -192,7 +174,7 @@ export function createSimulation({ seed = 0 }: { seed?: number } = {}): Simulati
             oldY = p.y;
           if (!p.bounced) p.vx += (wind * (0.45 + p.depth * 1.15) - p.vx) * Math.min(1, dt * 2);
           // A passing pointer stirs nearby flakes and leaves.
-          if (snowy || condition === 'wind') {
+          if (snowy || windy) {
             if (pointer) {
               const dx = p.x - pointer.x,
                 dy = p.y - pointer.y,
@@ -213,7 +195,7 @@ export function createSimulation({ seed = 0 }: { seed?: number } = {}): Simulati
             p.x += p.vx * dt;
             p.y += p.vy * dt;
           }
-          if (condition === 'wind') {
+          if (windy) {
             // Leaves rise and fall on eddies and spin faster in stronger gusts.
             p.y += (Math.sin(elapsed * 1.6 + p.phase * 3) * 34 + Math.sin(p.flip ?? 0) * 18) * dt;
             const gust = Math.min(2.5, Math.abs(p.vx) / 80);
@@ -225,14 +207,14 @@ export function createSimulation({ seed = 0 }: { seed?: number } = {}): Simulati
           // On narrow screens only near rain reaches the room, so it stays readable.
           const includeRoom = width > 760 || !rainy || p.depth < 0.35;
           const hit =
-            condition !== 'wind' && !p.bounced
+            !windy && !p.bounced
               ? surfaceHit(oldX, oldY, p.x, p.y, surfaces, includeRoom)
               : undefined;
           if (hit) {
             if (snowy) settleSnow(deposits, hit, p.size);
             // Distant drops land too small to see a splash.
-            else if (p.depth > 0.2 || condition === 'hail') splash(hit, p);
-            if (condition === 'hail') {
+            else if (p.depth > 0.2 || hail) splash(hit, p);
+            if (hail) {
               p.x = hit.x;
               p.y = hit.y - 2;
               p.vy = -90;
