@@ -30,11 +30,16 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build --if-present
+      - run: npm run docs:build --if-present
       - name: Collect site
         run: |
           mkdir -p _site
-          cp -R demo.html README.md src _site/
+          # The docs site (if built) is the root; the demo, examples and build sit beside it.
+          if [ -d site ]; then cp -R site/. _site/; fi
+          cp demo.html _site/
+          if [ ! -f _site/index.html ]; then cp README.md _site/; fi
           if [ -d dist ]; then cp -R dist _site/; fi
+          if [ -d examples ]; then cp -R examples _site/; fi
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
