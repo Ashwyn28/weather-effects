@@ -102,7 +102,245 @@ interface NetworkInformation {
   saveData?: boolean;
 }
 
-const FRAME = 1000 / 30;
+// Simulation and render step: 30 fps.
+const FRAME_MS = 1000 / 30;
+const STEP_S = 1 / 30;
+// Longest time step (s) taken in one frame.
+const MAX_STEP_S = 0.04;
+// The backdrop repaints at most every 0.05 s (~20 fps): clouds drift slowly.
+const SKY_MIN_INTERVAL_S = 0.05;
+// Lightning flashes once per 18 s (sin period), as a brief sharp spike.
+const STORM_PERIOD_S = 18;
+const FLASH_SHARPNESS = 100;
+const FLASH_STRENGTH = 0.8;
+
+/** Everything one weather layer owns; helpers below act on it. */
+interface Fx {
+  canvas: HTMLCanvasElement;
+  skyCanvas?: HTMLCanvasElement;
+  renderer: WeatherRenderer;
+  sky: SkyRenderer | null;
+  simulation: Simulation;
+  seed: number;
+  saveData: boolean;
+  reducedMotion: ReducedMotion | null;
+  doc: Document | undefined;
+  onChange: () => void;
+  night: boolean;
+  reading: WeatherReading;
+  surfaces: Surface[];
+  surfaceSource: SurfaceSource;
+  surfacesDirty: boolean;
+  pointer: Point | null;
+  playing: boolean;
+  disposed: boolean;
+  frame: number;
+  last: number;
+  width: number;
+  height: number;
+  skyTime: number;
+  skyCondition: WeatherCondition | undefined;
+  skyNight: boolean | undefined;
+}
+
+const isStatic = (fx: Fx) => !fx.playing || fx.reducedMotion?.matches === true;
+
+// A canvas that refused a WebGL context cannot hand out a 2D one: swap in a
+// fresh element that keeps the class and accessibility attributes.
+function replaceCanvas(canvas: HTMLCanvasElement): HTMLCanvasElement {
+  const replacement = canvas.ownerDocument.createElement('canvas');
+  replacement.className = canvas.className;
+  for (const name of ['aria-hidden', 'role']) {
+    const value = canvas.getAttribute(name);
+    if (value !== null) replacement.setAttribute(name, value);
+  }
+  canvas.replaceWith(replacement);
+  return replacement;
+}
+
+function readSurfaces(fx: Fx) {
+  if (fx.surfacesDirty) {
+    const source = fx.surfaceSource;
+    fx.surfaces = (typeof source === 'function' ? source() : source) ?? [];
+    fx.surfacesDirty = false;
+  }
+  return fx.surfaces;
+}
+
+function paintSky(fx: Fx, sky: SkyRenderer, skyDt: number) {
+  const { condition, elapsed: time } = fx.simulation;
+  fx.skyTime = time;
+  fx.skyCondition = condition;
+  fx.skyNight = fx.night;
+  const pulse = Math.max(0, Math.sin((time * Math.PI) / (STORM_PERIOD_S / 2)));
+  const flash =
+    PROFILES[condition].lightning && !isStatic(fx)
+      ? Math.pow(pulse, FLASH_SHARPNESS) * FLASH_STRENGTH
+      : 0;
+  sky.render({
+    condition,
+    night: fx.night,
+    time,
+    dt: skyDt,
+    wind: fx.simulation.wind,
+    cloudCover: fx.reading.cloudCover,
+    flash,
+  });
+}
+
+function paint(fx: Fx) {
+  const { simulation, renderer } = fx;
+  const condition = simulation.condition;
+  const time = simulation.elapsed;
+  const skyDt = fx.skyTime < 0 || isStatic(fx) ? 0 : Math.max(0, time - fx.skyTime);
+  const skipSky =
+    skyDt > 0 &&
+    skyDt < SKY_MIN_INTERVAL_S &&
+    condition === fx.skyCondition &&
+    fx.night === fx.skyNight;
+  if (fx.sky && !skipSky) paintSky(fx, fx.sky, skyDt);
+  renderer.begin(condition, fx.night, simulation.elapsed * 1000, {
+    wind: simulation.wind,
+    cloudCover: fx.reading.cloudCover,
+    reduced: isStatic(fx),
+  });
+  for (const p of simulation.particles) renderer.particle(p, condition, fx.night);
+  for (const impact of simulation.impacts) renderer.splash(impact);
+  for (const drop of simulation.droplets) renderer.droplet(drop);
+  for (const deposit of simulation.deposits) renderer.deposit(deposit);
+  renderer.render();
+}
+
+function draw(fx: Fx, time: number) {
+  fx.frame = 0;
+  if (fx.disposed || fx.doc?.hidden || !fx.renderer.available) {
+    fx.last = 0;
+    return;
+  }
+  const still = isStatic(fx);
+  if (!still && fx.last && time - fx.last < FRAME_MS) {
+    fx.frame = requestAnimationFrame((t) => {
+      draw(fx, t);
+    });
+    return;
+  }
+  const dt = still ? 0 : Math.min((time - (fx.last || time)) / 1000, MAX_STEP_S);
+  fx.last = time;
+  fx.simulation.step(dt, {
+    surfaces: readSurfaces(fx),
+    pointer: fx.pointer,
+    saveData: fx.saveData,
+  });
+  paint(fx);
+  if (!still)
+    fx.frame = requestAnimationFrame((t) => {
+      draw(fx, t);
+    });
+}
+
+function restart(fx: Fx) {
+  if (fx.disposed) return;
+  if (fx.frame) cancelAnimationFrame(fx.frame);
+  fx.frame = 0;
+  fx.last = 0;
+  draw(fx, performance.now());
+}
+
+// Re-read surfaces and background before the next frame; redraw if static.
+function invalidate(fx: Fx, { clearDeposits = false } = {}) {
+  fx.surfacesDirty = true;
+  fx.renderer.invalidateBackground();
+  if (clearDeposits) fx.simulation.clearDeposits();
+  if (!fx.frame) restart(fx);
+}
+
+// Deterministic: replay from the seed at a fixed 30 fps step, then draw that frame.
+function seek(fx: Fx, seconds: number) {
+  if (!(seconds >= 0)) throw new RangeError('seek expects a non-negative number of seconds');
+  const { simulation } = fx;
+  const condition = simulation.condition;
+  simulation.reset(fx.seed);
+  simulation.setCondition(condition, fx.reading);
+  const steps = Math.round(seconds * 30),
+    options = { surfaces: readSurfaces(fx), pointer: null, saveData: fx.saveData };
+  simulation.step(0, options);
+  for (let i = 0; i < steps; i++) simulation.step(STEP_S, options);
+  fx.skyTime = -1;
+  if (fx.renderer.available) paint(fx);
+}
+
+function resize(fx: Fx, w: number, h: number) {
+  if (!(w > 0 && h > 0)) throw new RangeError('resize expects positive dimensions');
+  fx.width = w;
+  fx.height = h;
+  fx.renderer.resize(w, h);
+  // The backdrop follows its own CSS box, so it can scroll with the page.
+  if (fx.sky && fx.skyCanvas)
+    fx.sky.resize(fx.skyCanvas.clientWidth || w, fx.skyCanvas.clientHeight || h);
+  fx.simulation.resize(w, h);
+  invalidate(fx);
+  restart(fx);
+}
+
+function dispose(fx: Fx) {
+  if (fx.disposed) return;
+  fx.disposed = true;
+  if (fx.frame) cancelAnimationFrame(fx.frame);
+  fx.frame = 0;
+  fx.doc?.removeEventListener('visibilitychange', fx.onChange);
+  fx.reducedMotion?.removeEventListener?.('change', fx.onChange);
+  fx.renderer.dispose();
+  fx.sky?.dispose();
+}
+
+// Try the Three.js renderer; on failure swap the canvas and use the 2D one.
+function chooseRenderer(
+  canvas: HTMLCanvasElement,
+  THREE: typeof ThreeNS | undefined,
+  options: { pixelRatio: number; atmosphere: boolean; lightRain: boolean; onRestored: () => void },
+): { renderer: WeatherRenderer; canvas: HTMLCanvasElement } {
+  if (THREE) {
+    try {
+      return { renderer: createThreeRenderer(canvas, THREE, options), canvas };
+    } catch {
+      /* fall through to 2D */
+    }
+    if (canvas.parentNode) canvas = replaceCanvas(canvas);
+  }
+  return { renderer: createCanvasRenderer(canvas, { pixelRatio: options.pixelRatio }), canvas };
+}
+
+function createFx(
+  parts: Pick<Fx, 'canvas' | 'renderer' | 'sky' | 'skyCanvas'>,
+  options: Pick<Fx, 'seed' | 'saveData' | 'reducedMotion'> & { autoplay: boolean },
+): Fx {
+  const { autoplay, ...kept } = options;
+  const fx: Fx = {
+    ...parts,
+    ...kept,
+    simulation: createSimulation({ seed: options.seed }),
+    doc: (globalThis as { document?: Document }).document,
+    onChange: () => {
+      restart(fx);
+    },
+    night: false,
+    reading: {},
+    surfaces: [],
+    surfaceSource: null,
+    surfacesDirty: false,
+    pointer: null,
+    playing: autoplay,
+    disposed: false,
+    frame: 0,
+    last: 0,
+    width: 1,
+    height: 1,
+    skyTime: -1,
+    skyCondition: undefined,
+    skyNight: undefined,
+  };
+  return fx;
+}
 
 /**
  * Transparent weather layer drawn into `canvas`. Pass the Three.js module as
@@ -130,52 +368,16 @@ export function createWeatherEffects({
 }: WeatherEffectsOptions): WeatherEffects {
   // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- guards plain-JS callers
   if (!canvas) throw new TypeError('createWeatherEffects requires a canvas');
-  const simulation = createSimulation({ seed });
-  let created: WeatherRenderer | undefined,
-    night = false,
-    reading: WeatherReading = {},
-    surfaces: Surface[] = [],
-    surfaceSource: SurfaceSource = null,
-    surfacesDirty = false;
-  let pointer: Point | null = null,
-    playing = autoplay,
-    disposed = false,
-    frame = 0,
-    last = 0,
-    width = 1,
-    height = 1;
-
-  if (THREE) {
-    try {
-      created = createThreeRenderer(canvas, THREE, {
-        pixelRatio,
-        atmosphere: !skyCanvas,
-        lightRain: !!skyCanvas && skyStyle === 'full',
-        onRestored: () => {
-          invalidate();
-          restart();
-        },
-      });
-    } catch {
-      /* fall through to 2D */
-    }
-  }
-  if (!created) {
-    // A canvas that refused a WebGL context cannot hand out a 2D one.
-    if (THREE && canvas.parentNode) {
-      const replacement = canvas.ownerDocument.createElement('canvas');
-      replacement.className = canvas.className;
-      for (const name of ['aria-hidden', 'role']) {
-        const value = canvas.getAttribute(name);
-        if (value !== null) replacement.setAttribute(name, value);
-      }
-      canvas.replaceWith(replacement);
-      canvas = replacement;
-    }
-    created = createCanvasRenderer(canvas, { pixelRatio });
-  }
-  const renderer: WeatherRenderer = created;
-  canvas.dataset.renderer = renderer.backend;
+  const chosen = chooseRenderer(canvas, THREE, {
+    pixelRatio,
+    atmosphere: !skyCanvas,
+    lightRain: !!skyCanvas && skyStyle === 'full',
+    onRestored: () => {
+      invalidate(fx);
+      restart(fx);
+    },
+  });
+  chosen.canvas.dataset.renderer = chosen.renderer.backend;
   // Clouds are soft, so the backdrop renders at CSS pixel density at most.
   const sky: SkyRenderer | null = skyCanvas
     ? createSkyRenderer(skyCanvas, {
@@ -183,193 +385,98 @@ export function createWeatherEffects({
         starPixelRatio: pixelRatio,
         style: skyStyle,
         onRestored: () => {
-          skyTime = -1;
-          restart();
+          fx.skyTime = -1;
+          restart(fx);
         },
       })
     : null;
   if (sky && skyCanvas) skyCanvas.dataset.renderer = sky.backend;
-  let skyTime = -1,
-    skyCondition: WeatherCondition | undefined,
-    skyNight: boolean | undefined;
+  const fx = createFx({ ...chosen, skyCanvas, sky }, { seed, saveData, reducedMotion, autoplay });
+  fx.doc?.addEventListener('visibilitychange', fx.onChange);
+  reducedMotion?.addEventListener?.('change', fx.onChange);
+  const api = buildApi(fx);
+  api.resize(
+    Math.max(1, fx.canvas.clientWidth || fx.width),
+    Math.max(1, fx.canvas.clientHeight || fx.height),
+  );
+  return api;
+}
 
-  const doc = (globalThis as { document?: Document }).document;
-  const reduced = () => reducedMotion?.matches === true;
-  const isStatic = () => !playing || reduced();
-  const hidden = () => doc?.hidden;
+function setWeather(
+  fx: Fx,
+  condition: WeatherCondition,
+  { night = fx.night, reading = {} }: { night?: boolean; reading?: WeatherReading } = {},
+) {
+  if (!isCondition(condition))
+    throw new RangeError(`Unknown weather condition: ${String(condition)}`);
+  fx.night = night;
+  fx.reading = reading;
+  fx.simulation.setCondition(condition, reading);
+  restart(fx);
+}
 
-  function readSurfaces() {
-    if (surfacesDirty) {
-      surfaces = (typeof surfaceSource === 'function' ? surfaceSource() : surfaceSource) ?? [];
-      surfacesDirty = false;
-    }
-    return surfaces;
-  }
+const pointerAt = (x: number | null, y?: number): Point | null =>
+  x !== null && y !== undefined && Number.isFinite(x) && Number.isFinite(y) ? { x, y } : null;
 
-  function paint() {
-    const condition = simulation.condition;
-    const time = simulation.elapsed;
-    const skyDt = skyTime < 0 || isStatic() ? 0 : Math.max(0, time - skyTime);
-    // Clouds drift slowly; ~20 fps is plenty and halves the backdrop's cost.
-    const skipSky = skyDt > 0 && skyDt < 0.05 && condition === skyCondition && night === skyNight;
-    if (sky && !skipSky) {
-      skyTime = time;
-      skyCondition = condition;
-      skyNight = night;
-      const dt = skyDt;
-      const pulse = Math.max(0, Math.sin((time * Math.PI) / 9));
-      const flash = PROFILES[condition].lightning && !isStatic() ? Math.pow(pulse, 100) * 0.8 : 0;
-      sky.render({
-        condition,
-        night,
-        time,
-        dt,
-        wind: simulation.wind,
-        cloudCover: reading.cloudCover,
-        flash,
-      });
-    }
-    renderer.begin(condition, night, simulation.elapsed * 1000, {
-      wind: simulation.wind,
-      cloudCover: reading.cloudCover,
-      reduced: isStatic(),
-    });
-    for (const p of simulation.particles) renderer.particle(p, condition, night);
-    for (const impact of simulation.impacts) renderer.splash(impact);
-    for (const drop of simulation.droplets) renderer.droplet(drop);
-    for (const deposit of simulation.deposits) renderer.deposit(deposit);
-    renderer.render();
-  }
+function setPlaying(fx: Fx, playing: boolean) {
+  fx.playing = playing;
+  restart(fx);
+}
 
-  function draw(time: number) {
-    frame = 0;
-    if (disposed || hidden() || !renderer.available) {
-      last = 0;
-      return;
-    }
-    const still = isStatic();
-    if (!still && last && time - last < FRAME) {
-      frame = requestAnimationFrame(draw);
-      return;
-    }
-    const dt = still ? 0 : Math.min((time - (last || time)) / 1000, 0.04);
-    last = time;
-    simulation.step(dt, { surfaces: readSurfaces(), pointer, saveData });
-    paint();
-    if (!still) frame = requestAnimationFrame(draw);
-  }
-
-  function restart() {
-    if (disposed) return;
-    if (frame) cancelAnimationFrame(frame);
-    frame = 0;
-    last = 0;
-    draw(performance.now());
-  }
-
-  // Re-read surfaces and background before the next frame; redraw if static.
-  function invalidate({ clearDeposits = false } = {}) {
-    surfacesDirty = true;
-    renderer.invalidateBackground();
-    if (clearDeposits) simulation.clearDeposits();
-    if (!frame) restart();
-  }
-
-  const onVisibility = () => {
-    restart();
-  };
-  doc?.addEventListener('visibilitychange', onVisibility);
-  reducedMotion?.addEventListener?.('change', restart);
-
-  const api: WeatherEffects = {
+function buildApi(fx: Fx): WeatherEffects {
+  return {
     get canvas() {
-      return canvas;
+      return fx.canvas;
     },
     get backend() {
-      return renderer.backend;
+      return fx.renderer.backend;
     },
     get skyBackend() {
-      return sky?.backend ?? null;
+      return fx.sky?.backend ?? null;
     },
     get playing() {
-      return playing;
+      return fx.playing;
     },
     get condition() {
-      return simulation.condition;
+      return fx.simulation.condition;
     },
     get time() {
-      return simulation.elapsed;
+      return fx.simulation.elapsed;
     },
     get simulation() {
-      return simulation;
+      return fx.simulation;
     },
-    /** condition: one of CONDITIONS. reading: optional wind/precipitation/cloud values. */
-    setWeather(condition, { night: isNight = night, reading: nextReading = {} } = {}) {
-      if (!isCondition(condition))
-        throw new RangeError(`Unknown weather condition: ${String(condition)}`);
-      night = isNight;
-      reading = nextReading;
-      simulation.setCondition(condition, reading);
-      restart();
+    setWeather(condition, options) {
+      setWeather(fx, condition, options);
     },
-    /** Line segments or polygons ({ points: [{x,y}...], room?, visible?() }), or a function returning them. */
     setSurfaces(source, { clearDeposits = true } = {}) {
-      surfaceSource = source;
-      invalidate({ clearDeposits });
+      fx.surfaceSource = source;
+      invalidate(fx, { clearDeposits });
     },
-    /** Drawable or paint function used for droplet refraction; null removes it. */
     setBackground(source, options) {
-      renderer.setBackground(source, options);
-      invalidate();
+      fx.renderer.setBackground(source, options);
+      invalidate(fx);
     },
     setPointer(x, y) {
-      pointer =
-        x !== null && y !== undefined && Number.isFinite(x) && Number.isFinite(y) ? { x, y } : null;
+      fx.pointer = pointerAt(x, y);
     },
-    invalidate,
+    invalidate: (options) => {
+      invalidate(fx, options);
+    },
     play() {
-      playing = true;
-      restart();
+      setPlaying(fx, true);
     },
     pause() {
-      playing = false;
-      restart();
+      setPlaying(fx, false);
     },
-    /** Deterministic: replay from the seed at a fixed 30 fps step, then draw that frame. */
-    seek(seconds) {
-      if (!(seconds >= 0)) throw new RangeError('seek expects a non-negative number of seconds');
-      const condition = simulation.condition;
-      simulation.reset(seed);
-      simulation.setCondition(condition, reading);
-      const steps = Math.round(seconds * 30),
-        options = { surfaces: readSurfaces(), pointer: null, saveData };
-      simulation.step(0, options);
-      for (let i = 0; i < steps; i++) simulation.step(1 / 30, options);
-      skyTime = -1;
-      if (renderer.available) paint();
+    seek: (seconds) => {
+      seek(fx, seconds);
     },
-    resize(w, h) {
-      if (!(w > 0 && h > 0)) throw new RangeError('resize expects positive dimensions');
-      width = w;
-      height = h;
-      renderer.resize(w, h);
-      // The backdrop follows its own CSS box, so it can scroll with the page.
-      if (sky && skyCanvas) sky.resize(skyCanvas.clientWidth || w, skyCanvas.clientHeight || h);
-      simulation.resize(w, h);
-      invalidate();
-      restart();
+    resize: (w, h) => {
+      resize(fx, w, h);
     },
-    dispose() {
-      if (disposed) return;
-      disposed = true;
-      if (frame) cancelAnimationFrame(frame);
-      frame = 0;
-      doc?.removeEventListener('visibilitychange', onVisibility);
-      reducedMotion?.removeEventListener?.('change', restart);
-      renderer.dispose();
-      sky?.dispose();
+    dispose: () => {
+      dispose(fx);
     },
   };
-  api.resize(Math.max(1, canvas.clientWidth || width), Math.max(1, canvas.clientHeight || height));
-  return api;
 }

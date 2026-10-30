@@ -90,7 +90,7 @@ python3 -m http.server 8000 --bind 127.0.0.1
 
 ## Credits
 
-The integer hash in `random.js` and `droplet-shader.js` is lowbias32 by Chris Wellons (public domain).
+The integer hash in `random.js` and `shaders/droplets.js` is lowbias32 by Chris Wellons (public domain).
 
 ## Tests
 
