@@ -3,7 +3,7 @@
 // Integer hash: lowbias32 by Chris Wellons (hash-prospector, public domain).
 //
 // rainLayers returns, per layer: xy refraction offset, z coverage, w rim.
-export const dropletFunctions: string = /* glsl */`
+export const dropletFunctions = /* glsl */ `
 float saturate(float x) { return clamp(x, 0.0, 1.0); }
 
 uint lowbias32(uint x) {
