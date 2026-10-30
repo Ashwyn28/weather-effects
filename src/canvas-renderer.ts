@@ -1,4 +1,5 @@
 import type { WeatherCondition } from './conditions.js';
+import { PROFILES } from './profiles.js';
 import type { Particle, Impact, Droplet, Deposit } from './simulation.js';
 import type { BackgroundSource, BackgroundOptions } from './refraction.js';
 
@@ -55,7 +56,8 @@ export function createCanvasRenderer(
       dark = night;
       if (!ctx) return;
       ctx.clearRect(0, 0, width, height);
-      if (condition === 'fog') {
+      const veil = PROFILES[condition].canvasVeil;
+      if (veil === 'fog') {
         ctx.fillStyle = dark ? '#78898c30' : '#dce3e238';
         ctx.fillRect(0, 0, width, height);
         for (let i = 0; i < 4; i++) {
@@ -66,13 +68,11 @@ export function createCanvasRenderer(
           ctx.fillStyle = mist;
           ctx.fillRect(0, 0, width, height);
         }
-      } else if (
-        ['overcast', 'thunderstorm', 'hail', 'wind', 'partly-cloudy'].includes(condition)
-      ) {
+      } else if (veil !== 'none') {
         const clouds = ctx.createLinearGradient(0, 0, 0, height * 0.5);
         clouds.addColorStop(
           0,
-          condition === 'overcast'
+          veil === 'overcast'
             ? dark
               ? '#3b4f6132'
               : '#9daebd41'
@@ -90,16 +90,17 @@ export function createCanvasRenderer(
       ctx.strokeStyle = dark ? '#d5e7f09e' : '#496c808c';
       ctx.fillStyle = dark ? '#f5faf5b0' : '#78919b85';
       ctx.beginPath();
-      if (['snow', 'snow-showers', 'hail'].includes(condition)) {
+      const { kind, fine } = PROFILES[condition].precipitation;
+      if (kind === 'snow' || kind === 'hail') {
         ctx.arc(p.x, p.y, p.size * (0.5 + p.depth), 0, Math.PI * 2);
         ctx.fill();
-      } else if (condition === 'wind') {
+      } else if (kind === 'leaves') {
         ctx.fillStyle = dark ? '#a7b48acc' : '#7c8b57cc';
         ctx.ellipse(p.x, p.y, 6, 2.5, p.phase, 0, Math.PI * 2);
         ctx.fill();
       } else {
-        ctx.lineWidth = condition.includes('drizzle') ? 0.7 : 1;
-        const trail = condition.includes('drizzle') ? 0.03 : 0.025;
+        ctx.lineWidth = fine ? 0.7 : 1;
+        const trail = fine ? 0.03 : 0.025;
         ctx.moveTo(p.x, p.y);
         ctx.lineTo(p.x - p.vx * trail, p.y - p.vy * trail);
         ctx.stroke();

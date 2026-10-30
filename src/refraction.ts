@@ -1,6 +1,8 @@
 import type * as ThreeNS from 'three';
 import { dropletFunctions } from './droplet-shader.js';
+import { isRain } from './conditions.js';
 import type { WeatherCondition } from './conditions.js';
+import { PROFILES } from './profiles.js';
 
 export interface BackgroundInfo {
   width: number;
@@ -164,17 +166,8 @@ export function createRefractionLayer(
       mesh.scale.set(w, h, 1);
     },
     update(condition, dark, milliseconds, reduced) {
-      const wet = [
-        'rain',
-        'drizzle',
-        'showers',
-        'thunderstorm',
-        'freezing-rain',
-        'freezing-drizzle',
-      ].includes(condition);
-      const frozen = ['freezing-rain', 'freezing-drizzle', 'snow', 'snow-showers'].includes(
-        condition,
-      );
+      const { frost, refractionDensity } = PROFILES[condition].glass;
+      const wet = isRain(condition);
       const dt =
         previousTime === undefined
           ? 1
@@ -182,7 +175,7 @@ export function createRefractionLayer(
       previousTime = milliseconds;
       const blend = reduced ? 1 : 1 - Math.exp(-dt * 3);
       uniforms.rain.value += (Number(wet) - uniforms.rain.value) * blend;
-      uniforms.frost.value += ((frozen ? (wet ? 0.85 : 0.45) : 0) - uniforms.frost.value) * blend;
+      uniforms.frost.value += (frost - uniforms.frost.value) * blend;
       mesh.visible = uniforms.rain.value > 0.005 || uniforms.frost.value > 0.005;
       if (!mesh.visible) return;
       const theme = `${condition}:${String(dark)}`;
@@ -193,11 +186,7 @@ export function createRefractionLayer(
       if (dirty) capture(dark);
       uniforms.time.value = 12 + milliseconds / 1000;
       uniforms.dark.value = Number(dark);
-      uniforms.density.value = condition.includes('drizzle')
-        ? 0.35
-        : condition === 'thunderstorm' || condition === 'showers'
-          ? 0.85
-          : 0.65;
+      uniforms.density.value = refractionDensity;
     },
   };
 }

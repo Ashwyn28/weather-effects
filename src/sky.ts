@@ -5,6 +5,8 @@
 // style 'full': opaque sky gradient as well, like a weather app.
 
 import type { WeatherCondition } from './conditions.js';
+import { PROFILES } from './profiles.js';
+import type { ConditionProfile, SkyPalette, SkyProfile } from './profiles.js';
 
 export type SkyStyle = 'clouds' | 'full';
 
@@ -36,9 +38,8 @@ export interface SkyRendererOptions {
 }
 
 type Vec3 = [number, number, number];
-type Palette = 'clear' | 'partly' | 'cloudy' | 'rain' | 'storm' | 'snow' | 'fog';
+type Palette = SkyPalette;
 type Colors4 = [string, string, string, string];
-type Look = [Palette, number, number, number, number, number, number, number];
 
 interface SkyState {
   top: Vec3;
@@ -106,26 +107,8 @@ const TONES: Record<Palette, { day: [string, string]; night: [string, string] }>
 // tones, coverage, wisps, stars, mist, sun, reach (fraction of the height
 // that clouds extend down from the top in clouds style), drift speed
 // Falls back to clear for conditions a plain-JS caller made up.
-const lookFor = (condition: WeatherCondition): Look =>
-  (LOOKS as Partial<Record<string, Look>>)[condition] ?? LOOKS.clear;
-
-const LOOKS: Record<WeatherCondition, Look> = {
-  clear: ['clear', 0.46, 0, 1, 0, 1, 0.3, 0.7],
-  'mainly-clear': ['clear', 0.38, 0.22, 0.7, 0, 0.8, 0.35, 1],
-  'partly-cloudy': ['partly', 0.6, 0.3, 0.4, 0, 0.5, 0.45, 1],
-  overcast: ['cloudy', 0.9, 0.25, 0.1, 0, 0, 0.5, 0.8],
-  fog: ['fog', 0.4, 0, 0, 1, 0, 0.45, 0.6],
-  drizzle: ['rain', 0.82, 0.2, 0, 0.2, 0, 0.5, 0.9],
-  'freezing-drizzle': ['rain', 0.82, 0.2, 0, 0.2, 0, 0.5, 0.9],
-  rain: ['rain', 0.9, 0.12, 0, 0.1, 0, 0.46, 1],
-  'freezing-rain': ['rain', 0.9, 0.12, 0, 0.1, 0, 0.46, 1],
-  showers: ['rain', 0.74, 0.1, 0, 0.05, 0, 0.46, 1.4],
-  thunderstorm: ['storm', 0.95, 0, 0, 0.1, 0, 0.46, 1.3],
-  hail: ['storm', 0.95, 0, 0, 0.1, 0, 0.46, 1.3],
-  snow: ['snow', 0.84, 0.15, 0, 0.2, 0, 0.5, 0.7],
-  'snow-showers': ['snow', 0.72, 0.1, 0, 0.25, 0, 0.5, 0.9],
-  wind: ['partly', 0.5, 0.55, 0.3, 0, 0.4, 0.42, 3],
-};
+const lookFor = (condition: WeatherCondition): SkyProfile =>
+  (PROFILES as Partial<Record<string, ConditionProfile>>)[condition]?.sky ?? PROFILES.clear.sky;
 
 const VERTEX = `#version 300 es
 void main() { vec2 p = vec2((gl_VertexID << 1) & 2, gl_VertexID & 2); gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0); }`;
@@ -272,7 +255,7 @@ function target(
   cloudCover: number | undefined,
   style: SkyStyle,
 ): SkyState {
-  const [palette, coverage, wispy, stars, mist, sun, reach, drift] = lookFor(condition);
+  const { palette, coverage, wispy, stars, mist, sun, reach, drift } = lookFor(condition);
   const time = night ? 'night' : 'day';
   const colors: Colors4 =
     style === 'full' ? SKIES[palette][time] : ['#000000', '#000000', ...TONES[palette][time]];
@@ -282,7 +265,8 @@ function target(
       ? Math.min(0.95, coverage * (0.6 + cloudCover / 125))
       : coverage;
   // Clear nights stay cloudless so the stars show; clear days get a few small clouds.
-  const clearNight = night && condition === 'clear';
+  const clearNight =
+    night && (PROFILES as Partial<Record<string, ConditionProfile>>)[condition] === PROFILES.clear;
   return {
     top,
     bottom,
@@ -482,7 +466,7 @@ function createGradientSky(canvas: HTMLCanvasElement, opaque: boolean): SkyRende
       if (!ctx) return;
       ctx.clearRect(0, 0, width, height);
       if (!opaque) return;
-      const [palette] = lookFor(condition);
+      const { palette } = lookFor(condition);
       const [top, bottom] = SKIES[palette][night ? 'night' : 'day'];
       const gradient = ctx.createLinearGradient(0, 0, 0, height);
       gradient.addColorStop(0, top);

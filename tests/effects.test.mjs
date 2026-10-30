@@ -206,3 +206,57 @@ test('backdrop falls back to 2D without WebGL2: full style paints a gradient, cl
     globalThis.requestAnimationFrame = raf;
   }
 });
+
+test('every condition has a complete profile', async () => {
+  const { PROFILES } = await import('../dist/profiles.js');
+  const kinds = ['rain', 'snow', 'hail', 'leaves', 'none'];
+  assert.deepEqual(Object.keys(PROFILES).sort(), [...CONDITIONS].sort());
+  for (const id of CONDITIONS) {
+    const { precipitation, sky, glass, atmosphere, canvasVeil, lightning } = PROFILES[id];
+    assert.ok(kinds.includes(precipitation.kind), id);
+    for (const n of [precipitation.density, precipitation.cap, precipitation.streakExposure])
+      assert.ok(n > 0, id);
+    assert.ok(precipitation.fall.base > 0 && precipitation.fall.range >= 0, id);
+    assert.equal(typeof precipitation.fine, 'boolean');
+    assert.ok(Number.isFinite(precipitation.wind), id);
+    assert.equal(typeof sky.palette, 'string', id);
+    for (const n of [sky.coverage, sky.wispy, sky.stars, sky.mist, sky.sun, sky.reach, sky.drift])
+      assert.ok(Number.isFinite(n), id);
+    for (const n of [glass.frost, glass.density, glass.stillDensity, glass.refractionDensity])
+      assert.ok(Number.isFinite(n), id);
+    assert.ok(glass.dropScale > 0, id);
+    assert.ok(Number.isFinite(atmosphere.kind) && atmosphere.strength > 0, id);
+    assert.ok(['none', 'fog', 'overcast', 'clouds'].includes(canvasVeil), id);
+    assert.equal(typeof lightning, 'boolean');
+  }
+  assert.ok(Object.isFrozen(PROFILES));
+});
+
+test('particle counts per condition are pinned at phone and desktop sizes', async () => {
+  const { createSimulation } = await import('../dist/simulation.js');
+  const expected = {
+    drizzle: [71, 160],
+    'freezing-drizzle': [71, 160],
+    rain: [78, 229],
+    'freezing-rain': [78, 229],
+    showers: [103, 300],
+    thunderstorm: [118, 343],
+    snow: [44, 128],
+    'snow-showers': [66, 192],
+    hail: [44, 128],
+    wind: [6, 17],
+  };
+  for (const id of CONDITIONS) {
+    const counts = [
+      [390, 844],
+      [1200, 800],
+    ].map(([w, h]) => {
+      const sim = createSimulation({ seed: 1 });
+      sim.resize(w, h);
+      sim.setCondition(id, {});
+      sim.step(1 / 60);
+      return sim.particles.length;
+    });
+    assert.deepEqual(counts, expected[id] ?? [0, 0], id);
+  }
+});

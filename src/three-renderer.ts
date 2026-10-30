@@ -2,6 +2,7 @@ import type * as ThreeNS from 'three';
 import { createRefractionLayer } from './refraction.js';
 import type { WeatherRenderer, RenderState } from './canvas-renderer.js';
 import type { WeatherCondition } from './conditions.js';
+import { PROFILES } from './profiles.js';
 
 export interface ThreeRendererOptions {
   pixelRatio?: number;
@@ -257,31 +258,8 @@ export function createThreeRenderer(
       setColor(wind, 'color', dark ? '#7d8d63' : '#6c8a45');
       setColor(wind, 'color2', dark ? '#9b8257' : '#c08b3a');
       setColor(caps, 'color', '#f6fafb');
-      atmosphereMaterial.uniforms.kind.value = ['clear', 'mainly-clear'].includes(condition)
-        ? 1
-        : condition === 'fog'
-          ? 3
-          : [
-                'overcast',
-                'thunderstorm',
-                'hail',
-                'rain',
-                'showers',
-                'drizzle',
-                'freezing-rain',
-                'freezing-drizzle',
-                'snow',
-                'snow-showers',
-              ].includes(condition)
-            ? 4
-            : condition === 'wind'
-              ? 5
-              : condition === 'partly-cloudy'
-                ? 2
-                : 0;
-      atmosphereMaterial.uniforms.strength.value = ['thunderstorm', 'hail'].includes(condition)
-        ? 0.7
-        : 0.4;
+      atmosphereMaterial.uniforms.kind.value = PROFILES[condition].atmosphere.kind;
+      atmosphereMaterial.uniforms.strength.value = PROFILES[condition].atmosphere.strength;
       if (
         state.cloudCover !== undefined &&
         Number.isFinite(state.cloudCover) &&
@@ -291,14 +269,15 @@ export function createThreeRenderer(
       atmosphereMaterial.uniforms.wind.value = state.wind ?? 0;
       const stormPulse = Math.max(0, Math.sin(((time / 1000) * Math.PI) / 9));
       atmosphereMaterial.uniforms.flash.value =
-        condition === 'thunderstorm' && !state.reduced ? Math.pow(stormPulse, 100) * 0.7 : 0;
+        PROFILES[condition].lightning && !state.reduced ? Math.pow(stormPulse, 100) * 0.7 : 0;
       atmosphereMaterial.uniforms.night.value = Number(dark);
       atmosphereMaterial.uniforms.time.value = time / 1000;
     },
     particle(p, condition, dark) {
       const depth = p.depth || 0,
         scale = 0.45 + depth * 1.15;
-      if (condition === 'snow' || condition === 'snow-showers') {
+      const { kind, fine, streakExposure } = PROFILES[condition].precipitation;
+      if (kind === 'snow') {
         // Near flakes are out of focus: larger, softer, fainter.
         const soft = depth > 0.72 ? (depth - 0.72) / 0.28 : depth < 0.12 ? 0.3 : 0;
         const size = (2.2 + p.size * 2) * scale * (1 + soft * 0.9);
@@ -313,9 +292,9 @@ export function createThreeRenderer(
           (0.55 + depth * 0.4) * (1 - soft * 0.4),
           soft,
         );
-      } else if (condition === 'hail')
+      } else if (kind === 'hail')
         instance(hail, p.x, p.y, depth * 30, p.size * scale, p.size * scale, p.phase);
-      else if (condition === 'wind') {
+      else if (kind === 'leaves') {
         // Leaves turn over as they tumble: width follows the flip angle.
         const flip = p.flip ?? p.phase,
           side = 0.5 + 0.5 * Math.cos(flip);
@@ -335,10 +314,9 @@ export function createThreeRenderer(
           instance(trails, p.x - Math.sign(p.vx) * 70, p.y + 6, 0, 150 * scale, 14, 0, 0.1);
       } else {
         // Streak length is the distance a drop covers during a short exposure.
-        const heavy = ['showers', 'thunderstorm'].includes(condition),
-          drizzle = condition.includes('drizzle');
+        const drizzle = fine;
         const speed = Math.hypot(p.vx, p.vy),
-          exposure = (drizzle ? 0.04 : heavy ? 0.045 : 0.038) * (lightRain ? 1.5 : 1);
+          exposure = streakExposure * (lightRain ? 1.5 : 1);
         const length = Math.max(4, Math.min(120, speed * exposure));
         const blur = depth > 0.8 ? (depth - 0.8) * 5 : 0;
         const angle = Math.atan2(p.vx, p.vy);

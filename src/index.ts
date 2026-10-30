@@ -3,6 +3,7 @@ import { createThreeRenderer } from './three-renderer.js';
 import { createCanvasRenderer } from './canvas-renderer.js';
 import { createSkyRenderer } from './sky.js';
 import { isCondition } from './conditions.js';
+import { PROFILES } from './profiles.js';
 import type { WeatherCondition } from './conditions.js';
 import type { Surface, Point, WeatherReading } from './physics.js';
 import type { Simulation } from './simulation.js';
@@ -217,7 +218,7 @@ export function createWeatherEffects({
       skyNight = night;
       const dt = skyDt;
       const pulse = Math.max(0, Math.sin((time * Math.PI) / 9));
-      const flash = condition === 'thunderstorm' && !isStatic() ? Math.pow(pulse, 100) * 0.8 : 0;
+      const flash = PROFILES[condition].lightning && !isStatic() ? Math.pow(pulse, 100) * 0.8 : 0;
       sky.render({
         condition,
         night,

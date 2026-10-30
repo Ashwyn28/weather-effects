@@ -1,4 +1,5 @@
 import type { WeatherCondition } from './conditions.js';
+import { PROFILES } from './profiles.js';
 import type { Deposit } from './simulation.js';
 
 export interface Point {
@@ -41,9 +42,7 @@ export function windAt(
   const speed =
     reading.windSpeed !== undefined && Number.isFinite(reading.windSpeed)
       ? clamp(reading.windSpeed, 0, 120)
-      : condition === 'wind'
-        ? 38
-        : 12;
+      : PROFILES[condition].precipitation.wind;
   const gust =
     reading.windGust !== undefined && Number.isFinite(reading.windGust)
       ? clamp(reading.windGust, speed, 160)
