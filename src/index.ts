@@ -3,12 +3,86 @@ import { createThreeRenderer } from './three-renderer.js';
 import { createCanvasRenderer } from './canvas-renderer.js';
 import { createSkyRenderer } from './sky.js';
 import { isCondition } from './conditions.js';
+import type { WeatherCondition } from './conditions.js';
+import type { Surface, Point, WeatherReading } from './physics.js';
+import type { Simulation } from './simulation.js';
+import type { WeatherRenderer } from './canvas-renderer.js';
+import type { SkyRenderer, SkyStyle } from './sky.js';
+import type { BackgroundSource, BackgroundOptions } from './refraction.js';
+import type { ReducedMotion } from './glass.js';
+import type * as ThreeNS from 'three';
 
 export { CONDITIONS, isCondition, isRain, isSnow, isFrozen, hasPrecipitation } from './conditions.js';
 export { createSimulation } from './simulation.js';
 export { createGlassDroplets } from './glass.js';
 export { windAt, surfaceHit, settleSnow } from './physics.js';
 export { hash32, particleRandom, particleVariant } from './random.js';
+export type { WeatherCondition } from './conditions.js';
+export type { Point, Surface, SurfaceHit, WeatherReading } from './physics.js';
+export type { Particle, Impact, Droplet, Deposit, StepOptions, Simulation } from './simulation.js';
+export type { BackgroundInfo, BackgroundPainter, BackgroundSource, BackgroundOptions } from './refraction.js';
+export type { GlassDroplets, GlassDropletsOptions, ReducedMotion } from './glass.js';
+export type { SkyStyle } from './sky.js';
+
+export type SurfaceSource = Surface[] | (() => Surface[]) | null;
+
+export interface WeatherEffectsOptions {
+  /** Transparent overlay above the content (pointer-events: none). */
+  canvas: HTMLCanvasElement;
+  /**
+   * Optional canvas behind the content for clouds, fog, stars, sun glow and
+   * lightning. The overlay then no longer draws its own cloud tint.
+   */
+  skyCanvas?: HTMLCanvasElement;
+  /** 'clouds' (default): transparent, clouds/fog/stars only. 'full': opaque sky gradient too. */
+  skyStyle?: SkyStyle;
+  /** The `three` module namespace. Omit to use the 2D fallback. */
+  THREE?: typeof ThreeNS;
+  /** Seed for particle randomness. Default 0. */
+  seed?: number;
+  /** Default true. */
+  autoplay?: boolean;
+  /** Default min(devicePixelRatio, 2). */
+  pixelRatio?: number;
+  /** Default matchMedia('(prefers-reduced-motion: reduce)'). Pass null to ignore. */
+  reducedMotion?: ReducedMotion | null;
+  /** Halves particle counts. Default navigator.connection.saveData. */
+  saveData?: boolean;
+}
+
+export interface WeatherEffects {
+  /** The canvas in use. Differs from the one passed when WebGL failed and a fallback canvas replaced it. */
+  readonly canvas: HTMLCanvasElement;
+  readonly backend: 'threejs' | 'canvas';
+  /** null without skyCanvas. */
+  readonly skyBackend: 'webgl2' | 'canvas' | null;
+  readonly playing: boolean;
+  readonly condition: WeatherCondition;
+  /** Simulated seconds. */
+  readonly time: number;
+  readonly simulation: Simulation;
+  setWeather(condition: WeatherCondition, options?: { night?: boolean; reading?: WeatherReading }): void;
+  /** Functions are called lazily, at most once per frame after invalidate(). Clears settled snow by default. */
+  setSurfaces(source: SurfaceSource, options?: { clearDeposits?: boolean }): void;
+  /**
+   * Used for droplet refraction and frost (WebGL only). Functions are repainted after invalidate() or a weather change.
+   * dropSize: CSS px per drop-grid unit (default 750); smaller gives smaller, denser drops for small targets.
+   */
+  setBackground(source: BackgroundSource, options?: BackgroundOptions): void;
+  /** Pass null to clear. Snow and leaves move away from the pointer. */
+  setPointer(x: number | null, y?: number): void;
+  /** Re-read surfaces and repaint the background before the next frame. */
+  invalidate(options?: { clearDeposits?: boolean }): void;
+  play(): void;
+  pause(): void;
+  /** Replays from the seed at a fixed 30 fps step and draws that frame. */
+  seek(seconds: number): void;
+  /** CSS pixels. */
+  resize(width: number, height: number): void;
+  dispose(): void;
+}
+
+interface NetworkInformation { saveData?: boolean }
 
 const FRAME = 1000 / 30;
 
@@ -26,34 +100,35 @@ export function createWeatherEffects({
   canvas, skyCanvas, skyStyle = 'clouds', THREE, seed = 0, autoplay = true,
   pixelRatio = Math.min(globalThis.devicePixelRatio || 1, 2),
   reducedMotion = globalThis.matchMedia?.('(prefers-reduced-motion: reduce)'),
-  saveData = globalThis.navigator?.connection?.saveData === true
-} = {}) {
+  saveData = (globalThis.navigator as (Navigator & { connection?: NetworkInformation }) | undefined)?.connection?.saveData === true
+}: WeatherEffectsOptions): WeatherEffects {
   if (!canvas) throw new TypeError('createWeatherEffects requires a canvas');
   const simulation = createSimulation({ seed });
-  let renderer, night = false, reading = {}, surfaces = [], surfaceSource = null, surfacesDirty = false;
-  let pointer = null, playing = autoplay, disposed = false, frame = 0, last = 0, width = 1, height = 1;
+  let created: WeatherRenderer | undefined, night = false, reading: WeatherReading = {}, surfaces: Surface[] = [], surfaceSource: SurfaceSource = null, surfacesDirty = false;
+  let pointer: Point | null = null, playing = autoplay, disposed = false, frame = 0, last = 0, width = 1, height = 1;
 
   if (THREE) {
     try {
-      renderer = createThreeRenderer(canvas, THREE, { pixelRatio, atmosphere: !skyCanvas, lightRain: !!skyCanvas && skyStyle === 'full', onRestored: () => { invalidate(); restart(); } });
+      created = createThreeRenderer(canvas, THREE, { pixelRatio, atmosphere: !skyCanvas, lightRain: !!skyCanvas && skyStyle === 'full', onRestored: () => { invalidate(); restart(); } });
     } catch { /* fall through to 2D */ }
   }
-  if (!renderer) {
+  if (!created) {
     // A canvas that refused a WebGL context cannot hand out a 2D one.
     if (THREE && canvas.parentNode) {
       const replacement = canvas.ownerDocument.createElement('canvas');
       replacement.className = canvas.className;
-      for (const name of ['aria-hidden', 'role']) if (canvas.hasAttribute(name)) replacement.setAttribute(name, canvas.getAttribute(name));
+      for (const name of ['aria-hidden', 'role']) if (canvas.hasAttribute(name)) replacement.setAttribute(name, canvas.getAttribute(name)!);
       canvas.replaceWith(replacement);
       canvas = replacement;
     }
-    renderer = createCanvasRenderer(canvas, { pixelRatio });
+    created = createCanvasRenderer(canvas, { pixelRatio });
   }
+  const renderer: WeatherRenderer = created;
   canvas.dataset.renderer = renderer.backend;
   // Clouds are soft, so the backdrop renders at CSS pixel density at most.
-  const sky = skyCanvas ? createSkyRenderer(skyCanvas, { pixelRatio: Math.min(pixelRatio, 1), starPixelRatio: pixelRatio, style: skyStyle, onRestored: () => { skyTime = -1; restart(); } }) : null;
-  if (sky) skyCanvas.dataset.renderer = sky.backend;
-  let skyTime = -1, skyCondition, skyNight;
+  const sky: SkyRenderer | null = skyCanvas ? createSkyRenderer(skyCanvas, { pixelRatio: Math.min(pixelRatio, 1), starPixelRatio: pixelRatio, style: skyStyle, onRestored: () => { skyTime = -1; restart(); } }) : null;
+  if (sky && skyCanvas) skyCanvas.dataset.renderer = sky.backend;
+  let skyTime = -1, skyCondition: WeatherCondition | undefined, skyNight: boolean | undefined;
 
   const reduced = () => reducedMotion?.matches === true;
   const isStatic = () => !playing || reduced();
@@ -85,7 +160,7 @@ export function createWeatherEffects({
     renderer.render();
   }
 
-  function draw(time) {
+  function draw(time: number) {
     frame = 0;
     if (disposed || hidden() || !renderer.available) { last = 0; return; }
     const still = isStatic();
@@ -116,7 +191,7 @@ export function createWeatherEffects({
   globalThis.document?.addEventListener('visibilitychange', onVisibility);
   reducedMotion?.addEventListener?.('change', restart);
 
-  const api = {
+  const api: WeatherEffects = {
     get canvas() { return canvas; },
     get backend() { return renderer.backend; },
     get skyBackend() { return sky?.backend ?? null; },
@@ -135,7 +210,7 @@ export function createWeatherEffects({
     setSurfaces(source, { clearDeposits = true } = {}) { surfaceSource = source; invalidate({ clearDeposits }); },
     /** Drawable or paint function used for droplet refraction; null removes it. */
     setBackground(source, options) { renderer.setBackground(source, options); invalidate(); },
-    setPointer(x, y) { pointer = Number.isFinite(x) && Number.isFinite(y) ? { x, y } : null; },
+    setPointer(x, y) { pointer = x !== null && y !== undefined && Number.isFinite(x) && Number.isFinite(y) ? { x, y } : null; },
     invalidate,
     play() { playing = true; restart(); },
     pause() { playing = false; restart(); },
@@ -156,7 +231,7 @@ export function createWeatherEffects({
       width = w; height = h;
       renderer.resize(w, h);
       // The backdrop follows its own CSS box, so it can scroll with the page.
-      sky?.resize(skyCanvas.clientWidth || w, skyCanvas.clientHeight || h);
+      if (sky && skyCanvas) sky.resize(skyCanvas.clientWidth || w, skyCanvas.clientHeight || h);
       simulation.resize(w, h);
       invalidate();
       restart();

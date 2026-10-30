@@ -2,11 +2,11 @@
 
 A transparent weather layer for a web page. Rain, drizzle, showers, storms, snow, hail and wind-blown leaves fall over the page, splash on or settle on surfaces you supply, and refract a background you supply. Sun, moon, stars, fog banks and a cloud ceiling are drawn behind the particles.
 
-**[Live demo](https://ashwyn28.github.io/weather-effects/demo.html)** · No build step: plain ES modules. Three.js is optional and injected, so pages with a strict `script-src 'self'` policy need no import map.
+**[Live demo](https://ashwyn28.github.io/weather-effects/demo.html)** · Written in TypeScript and compiled to plain ES modules in `dist/`. Three.js is optional and injected, so pages with a strict `script-src 'self'` policy need no import map.
 
 ```js
 import * as THREE from 'three';
-import { createWeatherEffects } from './weather-effects/src/index.js';
+import { createWeatherEffects } from './weather-effects/dist/index.js';
 
 const canvas = document.querySelector('canvas.weather'); // position: fixed; inset: 0; pointer-events: none
 const effects = createWeatherEffects({ canvas, THREE, seed: 1 });
@@ -21,7 +21,7 @@ addEventListener('resize', () => effects.resize(innerWidth, innerHeight));
 addEventListener('scroll', () => effects.invalidate({ clearDeposits: true }), { passive: true });
 ```
 
-See [`index.d.ts`](index.d.ts) for the full API and [`demo.html`](demo.html) for a standalone page.
+Types are generated from the TypeScript source into `dist/index.d.ts`, which documents the full API. See [`demo.html`](demo.html) for a standalone page.
 
 ## Clouds and sky
 
@@ -71,9 +71,9 @@ glass.setWeather('rain', { night: false });
 
 ## Install
 
-Copy `src/` into your site, or add the repository as a Git submodule, and import `src/index.js`. There are no runtime dependencies; Three.js (r160 or later) is optional.
+The source in `src/` is TypeScript. Run `npm install && npm run build`, then copy `dist/` into your site (or add the repository as a Git submodule) and import `dist/index.js`. There are no runtime dependencies; Three.js (r160 or later) is optional.
 
-To try the demo locally:
+To try the demo locally, build first (`npm run build`), then serve the repository root:
 
 ```sh
 python3 -m http.server 8000 --bind 127.0.0.1
