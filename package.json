@@ -37,7 +37,9 @@
     "build": "tsc",
     "prepare": "npm run build",
     "test": "npm run build && node --test tests/*.test.mjs",
-    "demo": "python3 -m http.server 8000 --bind 127.0.0.1"
+    "demo": "python3 -m http.server 8000 --bind 127.0.0.1",
+    "lint": "eslint . && prettier --check .",
+    "format": "prettier --write . && eslint --fix ."
   },
   "engines": {
     "node": ">=18"
@@ -52,8 +54,15 @@
   },
   "private": true,
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/three": "^0.186.0",
+    "@typescript/typescript6": "^6.0.2",
+    "eslint": "^10.13.0",
+    "eslint-config-prettier": "^10.1.8",
+    "globals": "^17.13.0",
+    "prettier": "^3.9.10",
     "three": "^0.186.1",
-    "typescript": "^7.0.2"
+    "typescript": "^7.0.2",
+    "typescript-eslint": "^8.72.1"
   }
 }

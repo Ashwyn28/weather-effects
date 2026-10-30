@@ -2,11 +2,20 @@ import type * as ThreeNS from 'three';
 import { dropletFunctions } from './droplet-shader.js';
 import type { WeatherCondition } from './conditions.js';
 
-export interface BackgroundInfo { width: number; height: number; night: boolean; }
+export interface BackgroundInfo {
+  width: number;
+  height: number;
+  night: boolean;
+}
 /** Paint in CSS pixels. Transparent areas receive no droplets or frost. */
-export type BackgroundPainter = (ctx: CanvasRenderingContext2D, info: BackgroundInfo) => { color?: string } | void;
+export type BackgroundPainter = (
+  ctx: CanvasRenderingContext2D,
+  info: BackgroundInfo,
+) => { color?: string } | void; // eslint-disable-line @typescript-eslint/no-invalid-void-type -- painters may return nothing
 export type BackgroundSource = CanvasImageSource | BackgroundPainter | null;
-export interface BackgroundOptions { dropSize?: number; }
+export interface BackgroundOptions {
+  dropSize?: number;
+}
 
 export interface RefractionLayer {
   setBackground(source: BackgroundSource, options?: BackgroundOptions): void;
@@ -19,22 +28,39 @@ export interface RefractionLayer {
 // Droplet refraction and frost over a caller-supplied background. The
 // background is redrawn into one texture only after invalidate() or a
 // condition/theme change, never per frame. Areas left transparent stay clear.
-export function createRefractionLayer(scene: ThreeNS.Scene, THREE: typeof ThreeNS): RefractionLayer {
-  const source: HTMLCanvasElement | OffscreenCanvas = typeof OffscreenCanvas === 'function' && !globalThis.document ? new OffscreenCanvas(1, 1) : document.createElement('canvas');
-  const ctx = source.getContext('2d') as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
+export function createRefractionLayer(
+  scene: ThreeNS.Scene,
+  THREE: typeof ThreeNS,
+): RefractionLayer {
+  const source: HTMLCanvasElement | OffscreenCanvas =
+    typeof OffscreenCanvas === 'function' && !(globalThis as { document?: Document }).document
+      ? new OffscreenCanvas(1, 1)
+      : document.createElement('canvas');
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion -- needed under TS 7 libs, which the lint-side TS 6 does not need
+  const ctx = source.getContext('2d') as
+    CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
   const texture = new THREE.CanvasTexture(source);
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.minFilter = THREE.LinearFilter;
   texture.generateMipmaps = false;
   const uniforms = {
-    background: { value: texture }, resolution: { value: new THREE.Vector2(1, 1) },
-    pageColor: { value: new THREE.Color() }, time: { value: 0 },
-    rain: { value: 0 }, frost: { value: 0 }, density: { value: .65 }, dark: { value: 0 }, dropScale: { value: 750 }
+    background: { value: texture },
+    resolution: { value: new THREE.Vector2(1, 1) },
+    pageColor: { value: new THREE.Color() },
+    time: { value: 0 },
+    rain: { value: 0 },
+    frost: { value: 0 },
+    density: { value: 0.65 },
+    dark: { value: 0 },
+    dropScale: { value: 750 },
   };
   const material = new THREE.ShaderMaterial({
-    transparent: true, depthWrite: false, depthTest: false, uniforms,
+    transparent: true,
+    depthWrite: false,
+    depthTest: false,
+    uniforms,
     vertexShader: `varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
-    fragmentShader: /* glsl */`
+    fragmentShader: /* glsl */ `
       varying vec2 vUv;
       uniform sampler2D background;
       uniform vec2 resolution;
@@ -78,13 +104,18 @@ export function createRefractionLayer(scene: ThreeNS.Scene, THREE: typeof ThreeN
         if (alpha < .002) discard;
         gl_FragColor = vec4(color, alpha * base.a);
         #include <colorspace_fragment>
-      }`
+      }`,
   });
   const mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), material);
   mesh.renderOrder = 2;
   mesh.frustumCulled = false;
   scene.add(mesh);
-  let width = 1, height = 1, dirty = true, lastTheme = '', previousTime: number | undefined, background: BackgroundSource = null;
+  let width = 1,
+    height = 1,
+    dirty = true,
+    lastTheme = '',
+    previousTime: number | undefined,
+    background: BackgroundSource = null;
 
   // background: a drawable (image, canvas, video, ImageBitmap) stretched over
   // the viewport, or a function (ctx, { width, height, night }) that paints in
@@ -93,44 +124,80 @@ export function createRefractionLayer(scene: ThreeNS.Scene, THREE: typeof ThreeN
     dirty = false;
     if (!ctx) return;
     const scale = Math.min(1.5, 2048 / Math.max(width, height));
-    const w = Math.max(1, Math.round(width*scale)), h = Math.max(1, Math.round(height*scale));
+    const w = Math.max(1, Math.round(width * scale)),
+      h = Math.max(1, Math.round(height * scale));
     // Three.js allocates fixed-size texture storage; a new size needs a new upload.
     if (w !== source.width || h !== source.height) texture.dispose();
-    source.width = w; source.height = h;
+    source.width = w;
+    source.height = h;
     ctx.setTransform(scale, 0, 0, scale, 0, 0);
     let color: string | undefined;
-    if (typeof background === 'function') color = background(ctx as CanvasRenderingContext2D, { width, height, night: dark })?.color;
+    if (typeof background === 'function')
+      color = background(ctx as CanvasRenderingContext2D, { width, height, night: dark })?.color;
     else if (background) ctx.drawImage(background, 0, 0, width, height);
-    uniforms.pageColor.value.set(color || (dark ? '#232426' : '#f4f5f2'));
+    uniforms.pageColor.value.set(color ?? (dark ? '#232426' : '#f4f5f2'));
     texture.needsUpdate = true;
   }
   return {
     // dropSize: CSS pixels per drop-grid unit (default 750). Smaller values
     // give smaller, closer drops, for small targets such as labels.
-    setBackground(next, { dropSize = 750 } = {}) { background = next || null; uniforms.dropScale.value = dropSize; dirty = true; },
-    dispose() { texture.dispose(); material.dispose(); mesh.geometry.dispose(); scene.remove(mesh); },
-    invalidate() { dirty = true; },
+    setBackground(next, { dropSize = 750 } = {}) {
+      background = next ?? null;
+      uniforms.dropScale.value = dropSize;
+      dirty = true;
+    },
+    dispose() {
+      texture.dispose();
+      material.dispose();
+      mesh.geometry.dispose();
+      scene.remove(mesh);
+    },
+    invalidate() {
+      dirty = true;
+    },
     resize(w, h) {
-      width = w; height = h; dirty = true;
-      uniforms.resolution.value.set(w,h);
-      mesh.position.set(w/2,h/2,60); mesh.scale.set(w,h,1);
+      width = w;
+      height = h;
+      dirty = true;
+      uniforms.resolution.value.set(w, h);
+      mesh.position.set(w / 2, h / 2, 60);
+      mesh.scale.set(w, h, 1);
     },
     update(condition, dark, milliseconds, reduced) {
-      const wet = ['rain','drizzle','showers','thunderstorm','freezing-rain','freezing-drizzle'].includes(condition);
-      const frozen = ['freezing-rain','freezing-drizzle','snow','snow-showers'].includes(condition);
-      const dt = previousTime === undefined ? 1 : Math.max(0, Math.min(.04,(milliseconds-previousTime)/1000));
+      const wet = [
+        'rain',
+        'drizzle',
+        'showers',
+        'thunderstorm',
+        'freezing-rain',
+        'freezing-drizzle',
+      ].includes(condition);
+      const frozen = ['freezing-rain', 'freezing-drizzle', 'snow', 'snow-showers'].includes(
+        condition,
+      );
+      const dt =
+        previousTime === undefined
+          ? 1
+          : Math.max(0, Math.min(0.04, (milliseconds - previousTime) / 1000));
       previousTime = milliseconds;
-      const blend = reduced ? 1 : 1-Math.exp(-dt*3);
-      uniforms.rain.value += (Number(wet)-uniforms.rain.value)*blend;
-      uniforms.frost.value += ((frozen ? (wet ? .85 : .45) : 0)-uniforms.frost.value)*blend;
-      mesh.visible = uniforms.rain.value > .005 || uniforms.frost.value > .005;
+      const blend = reduced ? 1 : 1 - Math.exp(-dt * 3);
+      uniforms.rain.value += (Number(wet) - uniforms.rain.value) * blend;
+      uniforms.frost.value += ((frozen ? (wet ? 0.85 : 0.45) : 0) - uniforms.frost.value) * blend;
+      mesh.visible = uniforms.rain.value > 0.005 || uniforms.frost.value > 0.005;
       if (!mesh.visible) return;
-      const theme = `${condition}:${dark}`;
-      if (theme !== lastTheme) { dirty = true; lastTheme = theme; }
+      const theme = `${condition}:${String(dark)}`;
+      if (theme !== lastTheme) {
+        dirty = true;
+        lastTheme = theme;
+      }
       if (dirty) capture(dark);
-      uniforms.time.value = 12 + milliseconds/1000;
+      uniforms.time.value = 12 + milliseconds / 1000;
       uniforms.dark.value = Number(dark);
-      uniforms.density.value = condition.includes('drizzle') ? .35 : condition === 'thunderstorm' || condition === 'showers' ? .85 : .65;
-    }
+      uniforms.density.value = condition.includes('drizzle')
+        ? 0.35
+        : condition === 'thunderstorm' || condition === 'showers'
+          ? 0.85
+          : 0.65;
+    },
   };
 }

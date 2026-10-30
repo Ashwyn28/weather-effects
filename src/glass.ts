@@ -34,8 +34,31 @@ export interface GlassDroplets {
   dispose(): void;
 }
 
-type UniformName = 'background' | 'resolution' | 'time' | 'rain' | 'frost' | 'density' | 'stillDensity' | 'dark' | 'dropScale' | 'seed' | 'outside';
-const UNIFORM_NAMES: UniformName[] = ['background', 'resolution', 'time', 'rain', 'frost', 'density', 'stillDensity', 'dark', 'dropScale', 'seed', 'outside'];
+type UniformName =
+  | 'background'
+  | 'resolution'
+  | 'time'
+  | 'rain'
+  | 'frost'
+  | 'density'
+  | 'stillDensity'
+  | 'dark'
+  | 'dropScale'
+  | 'seed'
+  | 'outside';
+const UNIFORM_NAMES: UniformName[] = [
+  'background',
+  'resolution',
+  'time',
+  'rain',
+  'frost',
+  'density',
+  'stillDensity',
+  'dark',
+  'dropScale',
+  'seed',
+  'outside',
+];
 
 // Water drops (and frost) on a small pane of glass, independent of the page
 // weather layer and of Three.js. Draw it over any element, such as a window in
@@ -114,38 +137,78 @@ const FRAME = 1000 / 30;
  * Returns null without WebGL2.
  */
 export function createGlassDroplets({
-  canvas, dropSize = 90, seed = 7, side = 'inside',
+  canvas,
+  dropSize = 90,
+  seed = 7,
+  side = 'inside',
   pixelRatio = Math.min(globalThis.devicePixelRatio || 1, 2),
-  reducedMotion = globalThis.matchMedia?.('(prefers-reduced-motion: reduce)')
+  reducedMotion = typeof globalThis.matchMedia === 'function'
+    ? globalThis.matchMedia('(prefers-reduced-motion: reduce)')
+    : null,
 }: GlassDropletsOptions): GlassDroplets | null {
-  const context = canvas.getContext('webgl2', { alpha: true, premultipliedAlpha: true, antialias: false, depth: false });
+  const context = canvas.getContext('webgl2', {
+    alpha: true,
+    premultipliedAlpha: true,
+    antialias: false,
+    depth: false,
+  });
   if (!context) return null;
   const gl: WebGL2RenderingContext = context;
   const source = document.createElement('canvas');
   const ctx = source.getContext('2d');
-  let program: WebGLProgram | null = null, uniforms = {} as Record<UniformName, WebGLUniformLocation | null>;
-  let texture: WebGLTexture | null = null, vao: WebGLVertexArrayObject | null = null, lost = false;
-  let painter: BackgroundSource = null, dirty = true, width = 1, height = 1, condition: WeatherCondition = 'clear', night = false;
-  let rain = 0, frost = 0, time = 12, frame = 0, last = 0, playing = true, disposed = false;
+  let program: WebGLProgram | null = null,
+    uniforms = {} as Record<UniformName, WebGLUniformLocation | null>;
+  let texture: WebGLTexture | null = null,
+    vao: WebGLVertexArrayObject | null = null,
+    lost = false;
+  let painter: BackgroundSource = null,
+    dirty = true,
+    width = 1,
+    height = 1,
+    condition: WeatherCondition = 'clear',
+    night = false;
+  let rain = 0,
+    frost = 0,
+    time = 12,
+    frame = 0,
+    last = 0,
+    playing = true,
+    disposed = false;
 
   function build() {
     const compile = (type: number, text: string) => {
       const shader = gl.createShader(type);
       if (!shader) throw new Error('Could not create shader');
-      gl.shaderSource(shader, text); gl.compileShader(shader);
-      if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS) && !gl.isContextLost()) throw new Error(gl.getShaderInfoLog(shader) ?? 'Shader compile failed');
+      gl.shaderSource(shader, text);
+      gl.compileShader(shader);
+      if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS) && !gl.isContextLost())
+        throw new Error(gl.getShaderInfoLog(shader) ?? 'Shader compile failed');
       return shader;
     };
-    program = gl.createProgram();
-    if (!program) throw new Error('Could not create program');
-    const vs = compile(gl.VERTEX_SHADER, VERTEX), fs = compile(gl.FRAGMENT_SHADER, FRAGMENT);
-    gl.attachShader(program, vs); gl.attachShader(program, fs); gl.linkProgram(program);
-    gl.deleteShader(vs); gl.deleteShader(fs);
-    uniforms = Object.fromEntries(UNIFORM_NAMES.map(name => [name, gl.getUniformLocation(program!, name)])) as Record<UniformName, WebGLUniformLocation | null>;
+    const linked = gl.createProgram();
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- null on a lost context despite DOM typings
+    if (!linked) throw new Error('Could not create program');
+    program = linked;
+    const vs = compile(gl.VERTEX_SHADER, VERTEX),
+      fs = compile(gl.FRAGMENT_SHADER, FRAGMENT);
+    gl.attachShader(program, vs);
+    gl.attachShader(program, fs);
+    gl.linkProgram(program);
+    gl.deleteShader(vs);
+    gl.deleteShader(fs);
+    uniforms = Object.fromEntries(
+      UNIFORM_NAMES.map((name) => [name, gl.getUniformLocation(linked, name)]),
+    ) as Record<UniformName, WebGLUniformLocation | null>;
     vao = gl.createVertexArray();
     texture = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, texture);
-    for (const [key, value] of [[gl.TEXTURE_MIN_FILTER, gl.LINEAR], [gl.TEXTURE_MAG_FILTER, gl.LINEAR], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]]) gl.texParameteri(gl.TEXTURE_2D, key, value);
+    for (const [key, value] of [
+      [gl.TEXTURE_MIN_FILTER, gl.LINEAR],
+      [gl.TEXTURE_MAG_FILTER, gl.LINEAR],
+      [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE],
+      [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE],
+    ])
+      gl.texParameteri(gl.TEXTURE_2D, key, value);
     dirty = true;
   }
   build();
@@ -168,7 +231,7 @@ export function createGlassDroplets({
   const still = () => !playing || reducedMotion?.matches === true;
   const wet = () => isRain(condition);
   const icy = () => isFrozen(condition);
-  const frostTarget = () => icy() ? (wet() ? .85 : .5) : 0;
+  const frostTarget = () => (icy() ? (wet() ? 0.85 : 0.5) : 0);
 
   function draw(dt: number) {
     const blend = dt > 0 ? 1 - Math.exp(-dt * 1.5) : 1;
@@ -176,14 +239,21 @@ export function createGlassDroplets({
     frost += (frostTarget() - frost) * blend;
     if (!still()) time += dt;
     if (lost) return;
-    const cw = Math.max(1, Math.round((canvas.clientWidth || width) * pixelRatio)), ch = Math.max(1, Math.round((canvas.clientHeight || height) * pixelRatio));
-    if (canvas.width !== cw || canvas.height !== ch) { canvas.width = cw; canvas.height = ch; }
+    const cw = Math.max(1, Math.round((canvas.clientWidth || width) * pixelRatio)),
+      ch = Math.max(1, Math.round((canvas.clientHeight || height) * pixelRatio));
+    if (canvas.width !== cw || canvas.height !== ch) {
+      canvas.width = cw;
+      canvas.height = ch;
+    }
     gl.viewport(0, 0, canvas.width, canvas.height);
-    gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
-    if (rain < .005 && frost < .005) return;
+    gl.clearColor(0, 0, 0, 0);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    if (rain < 0.005 && frost < 0.005) return;
     if (dirty) capture();
-    gl.useProgram(program); gl.bindVertexArray(vao);
-    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, texture);
+    gl.useProgram(program);
+    gl.bindVertexArray(vao);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, texture);
     gl.uniform1i(uniforms.background, 0);
     gl.uniform2f(uniforms.resolution, width, height);
     gl.uniform1f(uniforms.time, time);
@@ -191,54 +261,98 @@ export function createGlassDroplets({
     gl.uniform1f(uniforms.frost, frost);
     // Drizzle: a mist of small beads that rarely run. Heavier rain: more runs.
     const drizzle = condition.includes('drizzle');
-    gl.uniform1f(uniforms.density, drizzle ? .22 : ['showers', 'thunderstorm'].includes(condition) ? .85 : .65);
-    gl.uniform1f(uniforms.stillDensity, drizzle ? .95 : ['showers', 'thunderstorm'].includes(condition) ? .47 : .36);
+    gl.uniform1f(
+      uniforms.density,
+      drizzle ? 0.22 : ['showers', 'thunderstorm'].includes(condition) ? 0.85 : 0.65,
+    );
+    gl.uniform1f(
+      uniforms.stillDensity,
+      drizzle ? 0.95 : ['showers', 'thunderstorm'].includes(condition) ? 0.47 : 0.36,
+    );
     gl.uniform1f(uniforms.dark, night ? 1 : 0);
-    gl.uniform1f(uniforms.dropScale, dropSize * (drizzle ? .55 : 1));
+    gl.uniform1f(uniforms.dropScale, dropSize * (drizzle ? 0.55 : 1));
     gl.uniform1f(uniforms.seed, seed);
     gl.uniform1f(uniforms.outside, side === 'outside' ? 1 : 0);
-    gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
   }
 
   function loop(now: number) {
     frame = 0;
-    if (disposed || document.hidden) { last = 0; return; }
-    if (last && now - last < FRAME) { frame = requestAnimationFrame(loop); return; }
-    const dt = last ? Math.min(.05, (now - last) / 1000) : 0;
+    if (disposed || document.hidden) {
+      last = 0;
+      return;
+    }
+    if (last && now - last < FRAME) {
+      frame = requestAnimationFrame(loop);
+      return;
+    }
+    const dt = last ? Math.min(0.05, (now - last) / 1000) : 0;
     last = now;
     draw(dt);
-    const fading = Math.abs(Number(wet()) - rain) > .005 || Math.abs(frostTarget() - frost) > .005;
-    if ((!still() && (wet() || rain > .005)) || fading) frame = requestAnimationFrame(loop);
+    const fading =
+      Math.abs(Number(wet()) - rain) > 0.005 || Math.abs(frostTarget() - frost) > 0.005;
+    if ((!still() && (wet() || rain > 0.005)) || fading) frame = requestAnimationFrame(loop);
   }
 
   function restart() {
     if (disposed) return;
     if (frame) cancelAnimationFrame(frame);
-    frame = 0; last = 0;
+    frame = 0;
+    last = 0;
     frame = requestAnimationFrame(loop);
   }
 
-  const lose = (event: Event) => { event.preventDefault(); lost = true; };
-  const restore = () => { lost = false; build(); restart(); };
+  const lose = (event: Event) => {
+    event.preventDefault();
+    lost = true;
+  };
+  const restore = () => {
+    lost = false;
+    build();
+    restart();
+  };
   canvas.addEventListener('webglcontextlost', lose);
   canvas.addEventListener('webglcontextrestored', restore);
-  const onVisibility = () => restart();
+  const onVisibility = () => {
+    restart();
+  };
   document.addEventListener('visibilitychange', onVisibility);
   reducedMotion?.addEventListener?.('change', restart);
 
   return {
     backend: 'webgl2',
     setWeather(next, { night: isNight = night } = {}) {
-      if (next !== condition || !!isNight !== night) dirty = true;
-      condition = next; night = !!isNight; restart();
+      if (next !== condition || isNight !== night) dirty = true;
+      condition = next;
+      night = isNight;
+      restart();
     },
     /** A drawable, or a function (ctx, { width, height, night }) painting in CSS pixels. */
-    setBackground(next) { painter = next || null; dirty = true; restart(); },
-    invalidate() { dirty = true; restart(); },
-    resize(w, h) { width = Math.max(1, w); height = Math.max(1, h); dirty = true; restart(); },
-    play() { playing = true; restart(); },
-    pause() { playing = false; restart(); },
+    setBackground(next) {
+      painter = next ?? null;
+      dirty = true;
+      restart();
+    },
+    invalidate() {
+      dirty = true;
+      restart();
+    },
+    resize(w, h) {
+      width = Math.max(1, w);
+      height = Math.max(1, h);
+      dirty = true;
+      restart();
+    },
+    play() {
+      playing = true;
+      restart();
+    },
+    pause() {
+      playing = false;
+      restart();
+    },
     dispose() {
       if (disposed) return;
       disposed = true;
@@ -247,7 +361,9 @@ export function createGlassDroplets({
       canvas.removeEventListener('webglcontextrestored', restore);
       document.removeEventListener('visibilitychange', onVisibility);
       reducedMotion?.removeEventListener?.('change', restart);
-      gl.deleteProgram(program); gl.deleteTexture(texture); gl.deleteVertexArray(vao);
-    }
+      gl.deleteProgram(program);
+      gl.deleteTexture(texture);
+      gl.deleteVertexArray(vao);
+    },
   };
 }

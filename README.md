@@ -11,10 +11,17 @@ import { createWeatherEffects } from './weather-effects/dist/index.js';
 const canvas = document.querySelector('canvas.weather'); // position: fixed; inset: 0; pointer-events: none
 const effects = createWeatherEffects({ canvas, THREE, seed: 1 });
 effects.resize(innerWidth, innerHeight);
-effects.setSurfaces(() => [...document.querySelectorAll('h2')].map(el => {
-  const r = el.getBoundingClientRect();
-  return { points: [{ x: r.left, y: r.top }, { x: r.right, y: r.top }] };
-}));
+effects.setSurfaces(() =>
+  [...document.querySelectorAll('h2')].map((el) => {
+    const r = el.getBoundingClientRect();
+    return {
+      points: [
+        { x: r.left, y: r.top },
+        { x: r.right, y: r.top },
+      ],
+    };
+  }),
+);
 effects.setBackground(document.querySelector('img.hero')); // droplets refract this
 effects.setWeather('rain', { night: false, reading: { windSpeed: 20, windDirection: 250 } });
 addEventListener('resize', () => effects.resize(innerWidth, innerHeight));
@@ -28,9 +35,12 @@ Types are generated from the TypeScript source into `dist/index.d.ts`, which doc
 Pass a second canvas that sits behind your content, and clouds, fog, stars and sun glow are drawn there, so text stays crisp above them:
 
 ```html
-<canvas class="clouds"></canvas>   <!-- position: fixed; inset: 0; z-index: 0 -->
-<main style="position: relative; z-index: 1">…</main>   <!-- transparent background -->
-<canvas class="weather"></canvas>  <!-- position: fixed; inset: 0; z-index: 2; pointer-events: none -->
+<canvas class="clouds"></canvas>
+<!-- position: fixed; inset: 0; z-index: 0 -->
+<main style="position: relative; z-index: 1">…</main>
+<!-- transparent background -->
+<canvas class="weather"></canvas>
+<!-- position: fixed; inset: 0; z-index: 2; pointer-events: none -->
 ```
 
 ```js
@@ -52,8 +62,6 @@ glass.setBackground((ctx, { width, height }) => ctx.drawImage(windowImage, 0, 0,
 glass.resize(windowCanvas.clientWidth, windowCanvas.clientHeight);
 glass.setWeather('rain', { night: false });
 ```
-
-
 
 - **Conditions:** `clear`, `mainly-clear`, `partly-cloudy`, `overcast`, `fog`, `drizzle`, `freezing-drizzle`, `rain`, `freezing-rain`, `showers`, `snow`, `snow-showers`, `thunderstorm`, `hail`, `wind`. Mapping API data (for example WMO codes) to these ids is the caller's job.
 - **Surfaces:** two points make a ledge, more make a polygon. Swept collision stops fast rain tunnelling through thin edges. Rain splashes, hail bounces, snow settles and melts after the weather changes.

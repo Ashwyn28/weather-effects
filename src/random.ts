@@ -15,5 +15,5 @@ export function particleRandom(seed: number, salt = 0x9e3779b9): number {
 
 // The centre of one of `bins` equal bins, for a small set of variants.
 export function particleVariant(seed: number, bins = 8): number {
-  return (Math.floor(particleRandom(seed) * bins) + .5) / bins;
+  return (Math.floor(particleRandom(seed) * bins) + 0.5) / bins;
 }
