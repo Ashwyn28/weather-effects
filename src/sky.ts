@@ -1,4 +1,6 @@
-// Weather backdrop drawn behind page content. Raw WebGL2, with a 2D fallback.
+// Weather backdrop drawn behind page content on its own canvas. Raw WebGL2
+// (one full-screen triangle, all drawing in the fragment shader), with a 2D
+// fallback. It owns the canvas's GL context, program and the eased sky state.
 //
 // style 'clouds' (default): transparent canvas with clouds, fog, stars and
 //   sun glow only; the page keeps its own background.
@@ -6,6 +8,8 @@
 
 import type { WeatherCondition } from './conditions.js';
 import { PROFILES } from './profiles.js';
+import { buildProgram } from './gl.js';
+import { SKY_FRAGMENT, SKY_VERTEX } from './shaders/sky.js';
 import type { ConditionProfile, SkyPalette, SkyProfile } from './profiles.js';
 
 export type SkyStyle = 'clouds' | 'full';
@@ -110,126 +114,6 @@ const TONES: Record<Palette, { day: [string, string]; night: [string, string] }>
 const lookFor = (condition: WeatherCondition): SkyProfile =>
   (PROFILES as Partial<Record<string, ConditionProfile>>)[condition]?.sky ?? PROFILES.clear.sky;
 
-const VERTEX = `#version 300 es
-void main() { vec2 p = vec2((gl_VertexID << 1) & 2, gl_VertexID & 2); gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0); }`;
-
-const FRAGMENT = `#version 300 es
-precision highp float;
-uniform vec2 resolution;
-uniform float time, scale, opaque, coverage, wispy, stars, mist, sun, flash, drift, reach;
-// 0 on desktop, rising to 1 on phones: slightly denser and brighter stars.
-uniform float compact;
-uniform vec3 top, bottom, cloudLight, cloudShadow;
-out vec4 color;
-
-uint lowbias32(uint x) {
-  x ^= x >> 16u; x *= 0x7feb352du; x ^= x >> 15u; x *= 0x846ca68bu; x ^= x >> 16u; return x;
-}
-float hash(vec2 p) {
-  uvec2 q = uvec2(ivec2(floor(p)) + ivec2(65536));
-  return float(lowbias32(q.x ^ lowbias32(q.y + 0x9e3779b9u)) >> 8u) / 16777216.0;
-}
-float noise(vec2 p) {
-  vec2 i = floor(p), f = fract(p), u = f * f * (3.0 - 2.0 * f);
-  return mix(mix(hash(i), hash(i + vec2(1, 0)), u.x), mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), u.x), u.y);
-}
-const mat2 turn = mat2(1.6, 1.2, -1.2, 1.6);
-float fbm(vec2 p) {
-  float sum = 0.0, amp = .5;
-  for (int i = 0; i < 5; i++) { sum += amp * noise(p); p = turn * p; amp *= .5; }
-  return sum;
-}
-float fbm3(vec2 p) {
-  float sum = 0.0, amp = .5;
-  for (int i = 0; i < 3; i++) { sum += amp * noise(p); p = turn * p; amp *= .5; }
-  return sum / .875;
-}
-
-// Premultiplied "over": paint colour c with coverage a on top of dst.
-vec4 over(vec4 dst, vec3 c, float a) { return vec4(c * a, a) + dst * (1.0 - a); }
-
-// Point stars: a pin-sharp core, a faint glow and small cross glints on the
-// brightest few. Twinkle mixes two slow waves with an occasional quick glint.
-// Returns tint and intensity.
-vec4 starField(vec2 px, float cell, float chance, float t) {
-  vec2 id = floor(px / cell);
-  float r = hash(id * 1.37 + cell);
-  if (r > chance) return vec4(0.0);
-  vec2 centre = (id + .15 + .7 * vec2(hash(id + 11.0), hash(id + 23.0))) * cell;
-  vec2 d = px - centre;
-  // Fade everything out before the cell edge, so no glow is cut off square.
-  vec2 inCell = centre - id * cell;
-  float room = min(min(inCell.x, cell - inCell.x), min(inCell.y, cell - inCell.y));
-  float window = 1.0 - smoothstep(room * .55, room * .95, length(d));
-  float bright = pow(hash(id + 37.0), 3.0);
-  float phase = hash(id + 51.0) * 6.2832, rate = .7 + 1.6 * hash(id + 61.0);
-  float twinkle = .72 + .18 * sin(t * rate + phase) + .1 * sin(t * rate * 2.7 + phase * 3.1)
-    + pow(max(0.0, sin(t * rate * .37 + phase * 5.0)), 24.0) * .5 * bright;
-  float d2 = dot(d, d);
-  float core = exp(-d2 / ((.3 + bright * .25) * (1.0 + compact * .15)));
-  float glow = exp(-sqrt(d2) / (1.2 + bright * 2.2)) * .2 * (.3 + bright);
-  float spikes = max(0.0, bright - .55) * .9 * (
-      exp(-abs(d.x) * 2.2 - d.y * d.y / .12) + exp(-abs(d.y) * 2.2 - d.x * d.x / .12));
-  float light = (core * (.55 + .45 * bright) + glow + spikes) * twinkle * window;
-  vec3 tint = mix(vec3(1.0), mix(vec3(.78, .86, 1.0), vec3(1.0, .9, .76), hash(id + 71.0)), .55);
-  return vec4(tint, clamp(light, 0.0, 1.0));
-}
-
-void main() {
-  vec2 px = gl_FragCoord.xy / scale;
-  vec2 uv = gl_FragCoord.xy / resolution;
-  float aspect = resolution.x / resolution.y;
-  vec2 p = vec2(uv.x * aspect, uv.y);
-  vec4 col = opaque > .5 ? vec4(mix(bottom, top, smoothstep(0.0, 1.0, uv.y)), 1.0) : vec4(0.0);
-
-  // Sun glow, upper right.
-  vec2 s = (uv - vec2(.82, 1.02)) * vec2(aspect, 1.0);
-  float glow = exp(-dot(s, s) * 5.0) * .3 + exp(-dot(s, s) * 60.0) * .25;
-  col = over(col, vec3(1.0, .88, .66), sun * glow * opaque);
-
-  // Clouds thin out towards the reach line so the body of the page stays clear.
-  float profile = smoothstep(1.0 - reach - .12, 1.0 - reach + .4, uv.y);
-  float thin = mix(.8, .36, coverage);
-
-  // Wisps: high, stretched sideways.
-  vec2 w = p * vec2(1.1, 4.2) + vec2(time * .006 * drift, 0.0);
-  w += .7 * vec2(fbm3(w * .5 + vec2(0.0, time * .003)), fbm3(w * .5 + 7.3));
-  float wisp = smoothstep(.5, .85, fbm(w)) * wispy * max(profile, opaque * (.35 + .65 * uv.y));
-
-  // Cumulus: domain-warped noise, flattened, lit from above by a short march.
-  vec2 q = p * vec2(1.25, 2.1) + vec2(time * .007 * drift, 0.0);
-  vec2 warp = vec2(fbm3(q * .45 + vec2(time * .002, 1.7)), fbm3(q * .45 + 4.1));
-  vec2 base = q + warp * 1.1;
-  float shapeProfile = opaque > .5 ? .55 + .6 * smoothstep(.05, .95, uv.y) : profile;
-  float density = clamp((fbm(base) - thin) / .24, 0.0, 1.0) * shapeProfile * step(.01, coverage);
-  float shadow = 0.0;
-  for (int i = 1; i <= 3; i++) {
-    vec2 o = vec2(.035, .085) * float(i);
-    shadow += clamp((fbm3(base + o) - thin) / .24, 0.0, 1.0);
-  }
-  float light = exp(-shadow * .75);
-  vec3 cloud = mix(cloudShadow, cloudLight, light);
-  cloud = mix(cloud, cloudLight, (1.0 - smoothstep(0.0, .3, density)) * light * .5);
-  float cloudAlpha = (1.0 - exp(-density * 3.2)) * (opaque > .5 ? .95 : .72);
-
-  // Low fog banks.
-  vec2 m = p * vec2(1.4, 3.0) + vec2(time * .02, 0.0);
-  float fog = smoothstep(.3, .75, fbm(m + fbm3(m * .7 + time * .01))) * (1.0 - smoothstep(.1, .9, uv.y)) * mist;
-
-  // Clouds style: a sparse, dim band of stars near the top that fades out
-  // well before the content. Full style: the whole sky.
-  float starBand = opaque > .5 ? 1.0 : smoothstep(mix(.6, .45, compact), .95, uv.y) * (1.0 + compact * .3);
-  vec4 star = starField(px, opaque > .5 ? 24.0 : mix(36.0, 32.0, compact), opaque > .5 ? .45 : .3, time);
-  if (opaque > .5) { vec4 faint = starField(px, 11.0, .1, time * 1.3); if (faint.a * .5 > star.a) star = vec4(faint.rgb, faint.a * .5); }
-  col = over(col, star.rgb, clamp(stars * starBand * (1.0 - wisp * .8) * (1.0 - cloudAlpha) * star.a, 0.0, 1.0));
-  col = over(col, mix(cloudLight, cloudShadow, .25), wisp * .55);
-  col = over(col, cloud, cloudAlpha);
-  col = over(col, cloudLight, fog * .6);
-  col = over(col, vec3(.86, .9, 1.0), flash * (.15 + cloudAlpha * .5));
-  if (col.a > 0.0) col.rgb += (hash(gl_FragCoord.xy) - .5) / 255.0 * col.a;
-  color = col;
-}`;
-
 type UniformName =
   | 'resolution'
   | 'time'
@@ -248,6 +132,30 @@ type UniformName =
   | 'bottom'
   | 'cloudLight'
   | 'cloudShadow';
+const UNIFORM_NAMES: UniformName[] = [
+  'resolution',
+  'time',
+  'scale',
+  'opaque',
+  'coverage',
+  'wispy',
+  'stars',
+  'mist',
+  'sun',
+  'flash',
+  'drift',
+  'reach',
+  'compact',
+  'top',
+  'bottom',
+  'cloudLight',
+  'cloudShadow',
+];
+
+// Skies at or above this coverage ignore the reported cloud cover; adjusted
+// coverage never exceeds the maximum.
+const OVERCAST_COVERAGE = 0.9;
+const MAX_COVERAGE = 0.95;
 
 function target(
   condition: WeatherCondition,
@@ -261,8 +169,11 @@ function target(
     style === 'full' ? SKIES[palette][time] : ['#000000', '#000000', ...TONES[palette][time]];
   const [top, bottom, cloudLight, cloudShadow] = colors.map(hex) as [Vec3, Vec3, Vec3, Vec3];
   const cover =
-    cloudCover !== undefined && Number.isFinite(cloudCover) && coverage > 0 && coverage < 0.9
-      ? Math.min(0.95, coverage * (0.6 + cloudCover / 125))
+    cloudCover !== undefined &&
+    Number.isFinite(cloudCover) &&
+    coverage > 0 &&
+    coverage < OVERCAST_COVERAGE
+      ? Math.min(MAX_COVERAGE, coverage * (0.6 + cloudCover / 125))
       : coverage;
   // Clear nights stay cloudless so the stars show; clear days get a few small clouds.
   const clearNight =
@@ -293,6 +204,113 @@ function blend(current: SkyState | undefined, next: SkyState, t: number): SkySta
   return current;
 }
 
+// Seconds over which the look eases to a new condition: rate of 2 per second.
+const EASE_RATE = 2;
+// Viewports narrower than this (CSS px) count as compact; fully compact at
+// COMPACT_RANGE below it.
+const COMPACT_BELOW = 760;
+const COMPACT_RANGE = 370;
+// Below this a quantity is treated as absent.
+const NEGLIGIBLE = 0.01;
+
+// Only stars are showing: no clouds, wisps or mist.
+const isStarsOnly = (look: SkyState) =>
+  look.coverage < NEGLIGIBLE && look.wispy < NEGLIGIBLE && look.mist < NEGLIGIBLE;
+
+const compactness = (width: number, height: number) =>
+  Math.min(1, Math.max(0, (COMPACT_BELOW - Math.min(width, height)) / COMPACT_RANGE));
+
+interface SkyGl {
+  gl: WebGL2RenderingContext;
+  canvas: HTMLCanvasElement;
+  opaque: boolean;
+  program: WebGLProgram | null;
+  uniforms: Record<UniformName, WebGLUniformLocation | null>;
+  vao: WebGLVertexArrayObject | null;
+  lost: boolean;
+  width: number;
+  height: number;
+  look: SkyState | undefined;
+  ratio: number;
+}
+
+function build(s: SkyGl) {
+  ({ program: s.program, uniforms: s.uniforms } = buildProgram(
+    s.gl,
+    SKY_VERTEX,
+    SKY_FRAGMENT,
+    UNIFORM_NAMES,
+  ));
+  s.vao = s.gl.createVertexArray();
+}
+
+function resize(s: SkyGl, w: number, h: number) {
+  const { canvas } = s;
+  s.width = w;
+  s.height = h;
+  const cw = Math.max(1, Math.round(w * s.ratio)),
+    ch = Math.max(1, Math.round(h * s.ratio));
+  // Reassigning the same size would still clear the canvas.
+  if (canvas.width !== cw) canvas.width = cw;
+  if (canvas.height !== ch) canvas.height = ch;
+}
+
+// Follow the canvas's own CSS box every frame, so the drawing buffer can
+// never be left at another size (or the 300 x 150 default) and stretched.
+function syncSize(s: SkyGl, wanted: number) {
+  const { canvas } = s;
+  const w = canvas.clientWidth || s.width,
+    h = canvas.clientHeight || s.height;
+  if (
+    wanted !== s.ratio ||
+    w !== s.width ||
+    h !== s.height ||
+    canvas.width !== Math.max(1, Math.round(w * wanted)) ||
+    canvas.height !== Math.max(1, Math.round(h * wanted))
+  ) {
+    s.ratio = wanted;
+    resize(s, w, h);
+  }
+}
+
+function draw(s: SkyGl, look: SkyState, time: number, flash: number) {
+  const { gl, uniforms, canvas } = s;
+  gl.viewport(0, 0, canvas.width, canvas.height);
+  gl.clearColor(0, 0, 0, 0);
+  gl.clear(gl.COLOR_BUFFER_BIT);
+  gl.useProgram(s.program);
+  gl.bindVertexArray(s.vao);
+  gl.uniform2f(uniforms.resolution, canvas.width, canvas.height);
+  gl.uniform1f(uniforms.scale, s.ratio);
+  gl.uniform1f(uniforms.compact, compactness(s.width, s.height));
+  gl.uniform1f(uniforms.time, time);
+  gl.uniform1f(uniforms.opaque, s.opaque ? 1 : 0);
+  gl.uniform1f(uniforms.flash, flash);
+  for (const key of SCALARS) gl.uniform1f(uniforms[key], look[key]);
+  for (const key of VECTORS) gl.uniform3fv(uniforms[key], look[key]);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+}
+
+function listenForContextLoss(s: SkyGl, onRestored?: () => void): () => void {
+  const { canvas } = s;
+  const lose = (event: Event) => {
+    event.preventDefault();
+    s.lost = true;
+  };
+  const restore = () => {
+    s.lost = false;
+    build(s);
+    resize(s, s.width, s.height);
+    onRestored?.();
+  };
+  canvas.addEventListener('webglcontextlost', lose);
+  canvas.addEventListener('webglcontextrestored', restore);
+  return () => {
+    canvas.removeEventListener('webglcontextlost', lose);
+    canvas.removeEventListener('webglcontextrestored', restore);
+  };
+}
+
 // pixelRatio: resolution for clouds (soft, so 1 is enough). starPixelRatio:
 // used when only stars are showing, so they stay pin-sharp on dense screens.
 export function createSkyRenderer(
@@ -313,138 +331,46 @@ export function createSkyRenderer(
     powerPreference: 'low-power',
   });
   if (!context) return createGradientSky(canvas, opaque);
-  const gl: WebGL2RenderingContext = context;
-  let program: WebGLProgram | null = null,
-    uniforms = {} as Record<UniformName, WebGLUniformLocation | null>;
-  let vao: WebGLVertexArrayObject | null = null,
-    lost = false,
-    width = 1,
-    height = 1,
-    state: SkyState | undefined,
-    ratio = pixelRatio;
-  const names: UniformName[] = [
-    'resolution',
-    'time',
-    'scale',
-    'opaque',
-    'coverage',
-    'wispy',
-    'stars',
-    'mist',
-    'sun',
-    'flash',
-    'drift',
-    'reach',
-    'compact',
-    'top',
-    'bottom',
-    'cloudLight',
-    'cloudShadow',
-  ];
-
-  function build() {
-    const compile = (type: number, source: string) => {
-      const shader = gl.createShader(type);
-      if (!shader) throw new Error('Could not create shader');
-      gl.shaderSource(shader, source);
-      gl.compileShader(shader);
-      if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS) && !gl.isContextLost())
-        throw new Error(gl.getShaderInfoLog(shader) ?? 'Shader compile failed');
-      return shader;
-    };
-    const linked = gl.createProgram();
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- null on a lost context despite DOM typings
-    if (!linked) throw new Error('Could not create program');
-    program = linked;
-    const vs = compile(gl.VERTEX_SHADER, VERTEX),
-      fs = compile(gl.FRAGMENT_SHADER, FRAGMENT);
-    gl.attachShader(program, vs);
-    gl.attachShader(program, fs);
-    gl.linkProgram(program);
-    gl.deleteShader(vs);
-    gl.deleteShader(fs);
-    uniforms = Object.fromEntries(
-      names.map((name) => [name, gl.getUniformLocation(linked, name)]),
-    ) as Record<UniformName, WebGLUniformLocation | null>;
-    vao = gl.createVertexArray();
-  }
-  build();
-
-  const lose = (event: Event) => {
-    event.preventDefault();
-    lost = true;
+  const s: SkyGl = {
+    gl: context,
+    canvas,
+    opaque,
+    program: null,
+    uniforms: {} as Record<UniformName, WebGLUniformLocation | null>,
+    vao: null,
+    lost: false,
+    width: 1,
+    height: 1,
+    look: undefined,
+    ratio: pixelRatio,
   };
-  const restore = () => {
-    lost = false;
-    build();
-    api.resize(width, height);
-    onRestored?.();
-  };
-  canvas.addEventListener('webglcontextlost', lose);
-  canvas.addEventListener('webglcontextrestored', restore);
+  build(s);
 
-  const api: SkyRenderer = {
+  const unlisten = listenForContextLoss(s, onRestored);
+
+  return {
     backend: 'webgl2',
     style,
     get available() {
-      return !lost;
+      return !s.lost;
     },
     resize(w, h) {
-      width = w;
-      height = h;
-      const cw = Math.max(1, Math.round(w * ratio)),
-        ch = Math.max(1, Math.round(h * ratio));
-      // Reassigning the same size would still clear the canvas.
-      if (canvas.width !== cw) canvas.width = cw;
-      if (canvas.height !== ch) canvas.height = ch;
+      resize(s, w, h);
     },
     // dt of 0 jumps straight to the new look; otherwise it eases over ~1.5 s.
     render({ condition, night, time, dt = 0, cloudCover, flash = 0 }) {
       const next = target(condition, night, cloudCover, style);
-      state = blend(state, next, dt > 0 ? 1 - Math.exp(-dt * 2) : 1);
-      const starsOnly = next.coverage < 0.01 && next.wispy < 0.01 && next.mist < 0.01;
-      const wanted = starsOnly ? starPixelRatio : pixelRatio;
-      // Follow the canvas's own CSS box every frame, so the drawing buffer can
-      // never be left at another size (or the 300 x 150 default) and stretched.
-      const w = canvas.clientWidth || width,
-        h = canvas.clientHeight || height;
-      if (
-        wanted !== ratio ||
-        w !== width ||
-        h !== height ||
-        canvas.width !== Math.max(1, Math.round(w * wanted)) ||
-        canvas.height !== Math.max(1, Math.round(h * wanted))
-      ) {
-        ratio = wanted;
-        api.resize(w, h);
-      }
-      if (lost) return;
-      gl.viewport(0, 0, canvas.width, canvas.height);
-      gl.clearColor(0, 0, 0, 0);
-      gl.clear(gl.COLOR_BUFFER_BIT);
-      gl.useProgram(program);
-      gl.bindVertexArray(vao);
-      gl.uniform2f(uniforms.resolution, canvas.width, canvas.height);
-      gl.uniform1f(uniforms.scale, ratio);
-      gl.uniform1f(
-        uniforms.compact,
-        Math.min(1, Math.max(0, (760 - Math.min(width, height)) / 370)),
-      );
-      gl.uniform1f(uniforms.time, time);
-      gl.uniform1f(uniforms.opaque, opaque ? 1 : 0);
-      gl.uniform1f(uniforms.flash, flash);
-      for (const key of SCALARS) gl.uniform1f(uniforms[key], state[key]);
-      for (const key of VECTORS) gl.uniform3fv(uniforms[key], state[key]);
-      gl.drawArrays(gl.TRIANGLES, 0, 3);
+      const look = (s.look = blend(s.look, next, dt > 0 ? 1 - Math.exp(-dt * EASE_RATE) : 1));
+      syncSize(s, isStarsOnly(next) ? starPixelRatio : pixelRatio);
+      if (s.lost) return;
+      draw(s, look, time, flash);
     },
     dispose() {
-      canvas.removeEventListener('webglcontextlost', lose);
-      canvas.removeEventListener('webglcontextrestored', restore);
-      gl.deleteProgram(program);
-      gl.deleteVertexArray(vao);
+      unlisten();
+      s.gl.deleteProgram(s.program);
+      s.gl.deleteVertexArray(s.vao);
     },
   };
-  return api;
 }
 
 // Without WebGL2: the full style keeps its gradient; clouds style draws nothing.
