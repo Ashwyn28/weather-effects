@@ -45,3 +45,12 @@ test('the main entry does not export createSimulation', () => {
     (error) => /createSimulation/.test(error.stdout),
   );
 });
+
+test('dist type-checks the README code examples', () => {
+  assert.ok(existsSync(`${root}dist/index.d.ts`), 'run npm run build first');
+  try {
+    compile('readme-examples.ts');
+  } catch (error) {
+    assert.fail(`${error.stdout}${error.stderr}`);
+  }
+});

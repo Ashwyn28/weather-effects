@@ -1,25 +1,94 @@
 # weather-effects
 
-A transparent weather layer for a web page. Rain, drizzle, showers, storms, snow, hail and wind-blown leaves fall over the page, splash on or settle on surfaces you supply, and refract a background you supply. Sun, moon, stars, fog banks and a cloud ceiling are drawn behind the particles.
+Rain, snow, hail, fog and clouds that fall over your web page, splash on your headings and refract your background.
 
-**[Live demo](https://ashwyn28.github.io/weather-effects/demo.html)** · Written in TypeScript and compiled to plain ES modules in `dist/`. Three.js is optional and injected, so pages with a strict `script-src 'self'` policy need no import map.
+[![npm version](https://img.shields.io/npm/v/weather-effects)](https://www.npmjs.com/package/weather-effects)
+[![CI](https://github.com/Ashwyn28/weather-effects/actions/workflows/ci.yml/badge.svg)](https://github.com/Ashwyn28/weather-effects/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![bundle size](https://img.shields.io/badge/bundle%20size-TBD-lightgrey)](#install)
+
+![Rain over the weather-effects demo page](docs/assets/hero.png)
+
+**[Live demo](https://ashwyn28.github.io/weather-effects/demo.html)**
+
+## Quick start
 
 ```js
 import * as THREE from 'three';
-import { attachWeather } from './weather-effects/dist/index.js';
+import { attachWeather } from 'weather-effects';
 
 const weather = attachWeather({ condition: 'rain', surfaces: 'h1, h2, .card', three: THREE });
 weather.setWeather('snow', { night: true });
 weather.destroy(); // removes the canvases, listeners and observers
 ```
 
-`attachWeather` creates the overlay and backdrop canvases, resolves surfaces from a selector, element list or function, and wires resize, scroll, mutation and mouse-pointer handling. Options: `target`, `condition`, `night`, `reading`, `three`, `backdrop`, `backdropStyle`, `surfaces`, `pointer`, `seed`, `autoplay`, `zIndex`. It returns `{ effects, setWeather, play, pause, invalidate, destroy }`. See [`examples/minimal.html`](examples/minimal.html) (run `npm run build` first).
+`attachWeather` creates the canvases, resolves surfaces from a selector, element list or function, and wires resize, scroll, mutation and pointer handling. See [`examples/minimal.html`](examples/minimal.html).
 
-For full control, use `createWeatherEffects` with your own canvases:
+## Features
+
+- **15 conditions:** clear, mainly clear, partly cloudy, overcast, fog, drizzle, freezing drizzle, rain, freezing rain, showers, snow, snow showers, thunderstorm, hail and wind. Conditions ease into each other over about a second and a half.
+- **Collisions:** rain splashes, hail bounces and snow settles on surfaces you supply, with swept collision so fast rain cannot tunnel through thin edges.
+- **Clouds and stars backdrop:** clouds, fog, stars, sun and moon on a canvas behind your content, so text stays crisp.
+- **Glass drops:** running drops and frost on a pane of glass, refracting a background you supply.
+- **Reduced motion:** `prefers-reduced-motion` keeps a static frame.
+- **2D fallback:** without Three.js or WebGL, a 2D canvas draws precipitation, splashes, snow and simple fog and cloud gradients.
+- **Deterministic:** `seed` and `seek(t)` replay the same weather.
+- **No runtime dependencies and no bundler needed.** Three.js is optional and injected, so pages with a strict `script-src 'self'` policy need no import map.
+
+## Install
+
+From npm:
+
+```sh
+npm install weather-effects three
+```
+
+From a CDN, as ES modules:
+
+```html
+<script type="importmap">
+  { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js" } }
+</script>
+<script type="module">
+  import * as THREE from 'three';
+  import { attachWeather } from 'https://cdn.jsdelivr.net/npm/weather-effects/dist/index.js';
+  attachWeather({ condition: 'rain', three: THREE });
+</script>
+```
+
+Three.js r160 or later is optional. To build from source, run `npm install && npm run build` and import `dist/index.js`. To try the demo locally, build, then `npm run demo` and open <http://127.0.0.1:8000/demo.html>.
+
+## Core concepts
+
+**Overlay and backdrop.** The _overlay_ canvas sits above your content (`pointer-events: none`) and draws precipitation. The optional _backdrop_ canvas sits behind your content and draws clouds, fog, stars and sun glow.
+
+```html
+<canvas class="clouds"></canvas>
+<!-- position: fixed; inset: 0; z-index: 0 -->
+<main style="position: relative; z-index: 1">…</main>
+<!-- transparent background -->
+<canvas class="weather"></canvas>
+<!-- position: fixed; inset: 0; z-index: 2; pointer-events: none -->
+```
 
 ```js
-import * as THREE from 'three';
-import { createWeatherEffects } from './weather-effects/dist/index.js';
+import { createWeatherEffects } from 'weather-effects';
+
+const effects = createWeatherEffects({
+  canvas: weatherCanvas,
+  backdropCanvas: cloudsCanvas,
+  three: THREE,
+});
+```
+
+`backdropStyle: 'clouds'` (default) keeps your page background; `'sky'` paints an opaque sky gradient and draws rain as long light streaks.
+
+**Surfaces.** A surface is a ledge (two points) or polygon (more) that particles collide with. Pass a list or a function returning a fresh list, and call `invalidate()` after layout changes.
+
+**Background for drops.** Droplets refract only the background you supply: an image, canvas, video or paint function. It is redrawn after `invalidate()` or a weather change, at most 2048px on the long side. Other page content shows through unchanged and stays interactive.
+
+```js
+import { createWeatherEffects } from 'weather-effects';
 
 const canvas = document.querySelector('canvas.weather'); // position: fixed; inset: 0; pointer-events: none
 const effects = createWeatherEffects({ canvas, three: THREE, seed: 1 });
@@ -41,81 +110,46 @@ addEventListener('resize', () => effects.resize(innerWidth, innerHeight));
 addEventListener('scroll', () => effects.invalidate({ clearDeposits: true }), { passive: true });
 ```
 
-Types are generated from the TypeScript source into `dist/index.d.ts`, which documents the full API. See [`demo.html`](demo.html) for a standalone page.
-
-Lower-level pieces (`createSimulation`, `windAt`, `surfaceHit`, `settleSnow`, `hash32`, `particleRandom`, `particleVariant`, `isRain`, `isSnow`, `isFrozen`, `hasPrecipitation`) live in the `weather-effects/advanced` subpath, not the main entry.
-
-## Clouds and sky
-
-Pass a second canvas that sits behind your content, and clouds, fog, stars and sun glow are drawn there, so text stays crisp above them:
-
-```html
-<canvas class="clouds"></canvas>
-<!-- position: fixed; inset: 0; z-index: 0 -->
-<main style="position: relative; z-index: 1">…</main>
-<!-- transparent background -->
-<canvas class="weather"></canvas>
-<!-- position: fixed; inset: 0; z-index: 2; pointer-events: none -->
-```
+Glass drops work on their own, without Three.js or the page layer, for a window in an illustration:
 
 ```js
-const effects = createWeatherEffects({
-  canvas: weatherCanvas,
-  backdropCanvas: cloudsCanvas,
-  three: THREE,
-});
-```
+import { createGlassDroplets } from 'weather-effects';
 
-- `backdropStyle: 'clouds'` (default) keeps your page background. Clouds are lit from above with soft tops and grey undersides, gather near the top of the viewport and thin out before the body text.
-- `backdropStyle: 'sky'` paints an opaque sky gradient as well, like a weather app, and draws rain as long light streaks. The demo uses this.
-
-Conditions ease into each other over about a second and a half.
-
-## Glass drops
-
-`createGlassDroplets({ canvas, dropSize })` puts water drops and frost on a small pane of glass, such as a window in an illustration, without Three.js or the page weather layer. Give it what is seen through the glass with `setBackground(painter)`; transparent areas stay clear. Call `setWeather(condition, { night })` to follow the page: drops form and slide in rain, frost gathers at the edges in freezing weather, and both fade out when it is dry.
-
-```js
 const glass = createGlassDroplets({ canvas: windowCanvas, dropSize: 70 });
 glass.setBackground((ctx, { width, height }) => ctx.drawImage(windowImage, 0, 0, width, height));
 glass.resize(windowCanvas.clientWidth, windowCanvas.clientHeight);
 glass.setWeather('rain', { night: false });
 ```
 
-- **Conditions:** `clear`, `mainly-clear`, `partly-cloudy`, `overcast`, `fog`, `drizzle`, `freezing-drizzle`, `rain`, `freezing-rain`, `showers`, `snow`, `snow-showers`, `thunderstorm`, `hail`, `wind`. Mapping API data (for example WMO codes) to these ids is the caller's job.
-- **Surfaces:** two points make a ledge, more make a polygon. Swept collision stops fast rain tunnelling through thin edges. Rain splashes, hail bounces, snow settles and melts after the weather changes.
-- **Background:** an image, canvas, video or a paint function. It is redrawn only after `invalidate()` or a weather/night change, at most 2048px on the long side. Transparent areas get no droplets. Arbitrary HTML is not captured.
-- **Timing:** about 30 fps. Hidden tabs stop. `pause()` and `prefers-reduced-motion` keep a static frame. `seek(t)` replays deterministically from the seed.
-- **Fallbacks:** without `three` or WebGL, a 2D canvas draws precipitation, splashes, snow and simple fog/cloud gradients, with no refraction or frost. WebGL context loss hides the canvas; restoration redraws.
-- **Ownership:** `dispose()` stops the loop, removes listeners and frees GPU resources. The canvas element stays with the caller.
+## API overview
 
-## Limits
+| Export                          | Purpose                                                                                                                                                      |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `attachWeather(options)`        | One-call setup. Returns `{ effects, setWeather, play, pause, invalidate, destroy }`.                                                                         |
+| `createWeatherEffects(options)` | Full control with your own canvases.                                                                                                                         |
+| `createGlassDroplets(options)`  | Drops and frost on a small pane of glass.                                                                                                                    |
+| `CONDITIONS`, `isCondition(id)` | The condition ids and a type guard.                                                                                                                          |
+| `weather-effects/advanced`      | `createSimulation`, `windAt`, `surfaceHit`, `settleSnow`, `hash32`, `particleRandom`, `particleVariant`, `isRain`, `isSnow`, `isFrozen`, `hasPrecipitation`. |
 
-- Droplets refract only the background you supply. Other page content shows through unchanged and stays interactive.
-- Frost is procedural; it gathers at the edges of painted shapes.
-- The refraction texture is capped at 2048px and refreshed on change, not every frame.
+Types ship in `dist/*.d.ts` with TSDoc on every export. Mapping API data (for example WMO codes) to condition ids is the caller's job. A full API reference will be published on the docs site.
+
+## Browser support
+
+Modern evergreen browsers. With Three.js and WebGL2 you get refraction, frost and shader clouds. Without them, a 2D canvas fallback draws precipitation, splashes, snow and simple fog and cloud gradients. WebGL context loss hides the canvas, and restoration redraws.
+
+## Accessibility and performance
+
+- `prefers-reduced-motion` and `pause()` keep a static frame. Canvases are decorative and do not take pointer events.
+- Rendering runs at about 30 fps, and hidden tabs stop.
 - Particle counts are capped (450 rain, 240 snow or hail, 22 leaves) and halve with `saveData`.
+- The refraction texture is capped at 2048px and refreshed on change, not every frame.
+- `dispose()` and `destroy()` stop the loop, remove listeners and free GPU resources.
 
-## Install
+## Contributing
 
-The source in `src/` is TypeScript. Run `npm install && npm run build`, then copy `dist/` into your site (or add the repository as a Git submodule) and import `dist/index.js`. There are no runtime dependencies; Three.js (r160 or later) is optional.
+See [CONTRIBUTING.md](CONTRIBUTING.md) and the [Code of Conduct](CODE_OF_CONDUCT.md). Report vulnerabilities as described in [SECURITY.md](SECURITY.md). Changes are listed in [CHANGELOG.md](CHANGELOG.md).
 
-To try the demo locally, build first (`npm run build`), then serve the repository root:
-
-```sh
-python3 -m http.server 8000 --bind 127.0.0.1
-# open http://127.0.0.1:8000/demo.html
-```
-
-## Credits
-
-The integer hash in `random.js` and `shaders/droplets.js` is lowbias32 by Chris Wellons (public domain).
-
-## Tests
-
-```sh
-npm test
-```
+The integer hash in `random.ts` and `shaders/droplets.ts` is lowbias32 by Chris Wellons (public domain).
 
 ## License
 
