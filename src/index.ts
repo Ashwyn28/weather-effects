@@ -15,6 +15,8 @@ import type * as ThreeNS from 'three';
 
 export { CONDITIONS, isCondition } from './conditions.js';
 export { createGlassDroplets } from './glass.js';
+export { attachWeather } from './attach.js';
+export type { AttachWeatherOptions, AttachedWeather, SurfacesOption } from './attach.js';
 export type { WeatherCondition } from './conditions.js';
 export type { Point, Surface, WeatherReading } from './physics.js';
 export type {
