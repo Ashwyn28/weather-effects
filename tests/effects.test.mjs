@@ -293,6 +293,7 @@ test('main entry exports only the public API; advanced holds the rest', async ()
   const main = await import('../dist/index.js');
   assert.deepEqual(Object.keys(main).sort(), [
     'CONDITIONS',
+    'attachWeather',
     'createGlassDroplets',
     'createWeatherEffects',
     'isCondition',

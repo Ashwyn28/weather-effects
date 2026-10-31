@@ -6,6 +6,19 @@ A transparent weather layer for a web page. Rain, drizzle, showers, storms, snow
 
 ```js
 import * as THREE from 'three';
+import { attachWeather } from './weather-effects/dist/index.js';
+
+const weather = attachWeather({ condition: 'rain', surfaces: 'h1, h2, .card', three: THREE });
+weather.setWeather('snow', { night: true });
+weather.destroy(); // removes the canvases, listeners and observers
+```
+
+`attachWeather` creates the overlay and backdrop canvases, resolves surfaces from a selector, element list or function, and wires resize, scroll, mutation and mouse-pointer handling. Options: `target`, `condition`, `night`, `reading`, `three`, `backdrop`, `backdropStyle`, `surfaces`, `pointer`, `seed`, `autoplay`, `zIndex`. It returns `{ effects, setWeather, play, pause, invalidate, destroy }`. See [`examples/minimal.html`](examples/minimal.html) (run `npm run build` first).
+
+For full control, use `createWeatherEffects` with your own canvases:
+
+```js
+import * as THREE from 'three';
 import { createWeatherEffects } from './weather-effects/dist/index.js';
 
 const canvas = document.querySelector('canvas.weather'); // position: fixed; inset: 0; pointer-events: none
