@@ -9,7 +9,7 @@ import * as THREE from 'three';
 import { createWeatherEffects } from './weather-effects/dist/index.js';
 
 const canvas = document.querySelector('canvas.weather'); // position: fixed; inset: 0; pointer-events: none
-const effects = createWeatherEffects({ canvas, THREE, seed: 1 });
+const effects = createWeatherEffects({ canvas, three: THREE, seed: 1 });
 effects.resize(innerWidth, innerHeight);
 effects.setSurfaces(() =>
   [...document.querySelectorAll('h2')].map((el) => {
@@ -30,6 +30,8 @@ addEventListener('scroll', () => effects.invalidate({ clearDeposits: true }), { 
 
 Types are generated from the TypeScript source into `dist/index.d.ts`, which documents the full API. See [`demo.html`](demo.html) for a standalone page.
 
+Lower-level pieces (`createSimulation`, `windAt`, `surfaceHit`, `settleSnow`, `hash32`, `particleRandom`, `particleVariant`, `isRain`, `isSnow`, `isFrozen`, `hasPrecipitation`) live in the `weather-effects/advanced` subpath, not the main entry.
+
 ## Clouds and sky
 
 Pass a second canvas that sits behind your content, and clouds, fog, stars and sun glow are drawn there, so text stays crisp above them:
@@ -44,11 +46,15 @@ Pass a second canvas that sits behind your content, and clouds, fog, stars and s
 ```
 
 ```js
-const effects = createWeatherEffects({ canvas: weatherCanvas, skyCanvas: cloudsCanvas, THREE });
+const effects = createWeatherEffects({
+  canvas: weatherCanvas,
+  backdropCanvas: cloudsCanvas,
+  three: THREE,
+});
 ```
 
-- `skyStyle: 'clouds'` (default) keeps your page background. Clouds are lit from above with soft tops and grey undersides, gather near the top of the viewport and thin out before the body text.
-- `skyStyle: 'full'` paints an opaque sky gradient as well, like a weather app, and draws rain as long light streaks. The demo uses this.
+- `backdropStyle: 'clouds'` (default) keeps your page background. Clouds are lit from above with soft tops and grey undersides, gather near the top of the viewport and thin out before the body text.
+- `backdropStyle: 'sky'` paints an opaque sky gradient as well, like a weather app, and draws rain as long light streaks. The demo uses this.
 
 Conditions ease into each other over about a second and a half.
 
@@ -67,7 +73,7 @@ glass.setWeather('rain', { night: false });
 - **Surfaces:** two points make a ledge, more make a polygon. Swept collision stops fast rain tunnelling through thin edges. Rain splashes, hail bounces, snow settles and melts after the weather changes.
 - **Background:** an image, canvas, video or a paint function. It is redrawn only after `invalidate()` or a weather/night change, at most 2048px on the long side. Transparent areas get no droplets. Arbitrary HTML is not captured.
 - **Timing:** about 30 fps. Hidden tabs stop. `pause()` and `prefers-reduced-motion` keep a static frame. `seek(t)` replays deterministically from the seed.
-- **Fallbacks:** without `THREE` or WebGL, a 2D canvas draws precipitation, splashes, snow and simple fog/cloud gradients, with no refraction or frost. WebGL context loss hides the canvas; restoration redraws.
+- **Fallbacks:** without `three` or WebGL, a 2D canvas draws precipitation, splashes, snow and simple fog/cloud gradients, with no refraction or frost. WebGL context loss hides the canvas; restoration redraws.
 - **Ownership:** `dispose()` stops the loop, removes listeners and frees GPU resources. The canvas element stays with the caller.
 
 ## Limits

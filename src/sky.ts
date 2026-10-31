@@ -4,7 +4,7 @@
 //
 // style 'clouds' (default): transparent canvas with clouds, fog, stars and
 //   sun glow only; the page keeps its own background.
-// style 'full': opaque sky gradient as well, like a weather app.
+// style 'sky': opaque sky gradient as well, like a weather app.
 
 import type { WeatherCondition } from './conditions.js';
 import { PROFILES } from './profiles.js';
@@ -12,7 +12,7 @@ import { buildProgram } from './gl.js';
 import { SKY_FRAGMENT, SKY_VERTEX } from './shaders/sky.js';
 import type { ConditionProfile, SkyPalette, SkyProfile } from './profiles.js';
 
-export type SkyStyle = 'clouds' | 'full';
+export type BackdropStyle = 'clouds' | 'sky';
 
 export interface SkyFrame {
   condition: WeatherCondition;
@@ -27,7 +27,7 @@ export interface SkyFrame {
 
 export interface SkyRenderer {
   readonly backend: 'webgl2' | 'canvas';
-  readonly style: SkyStyle;
+  readonly style: BackdropStyle;
   readonly available: boolean;
   resize(width: number, height: number): void;
   render(frame: SkyFrame): void;
@@ -37,7 +37,7 @@ export interface SkyRenderer {
 export interface SkyRendererOptions {
   pixelRatio?: number;
   starPixelRatio?: number;
-  style?: SkyStyle;
+  style?: BackdropStyle;
   onRestored?: () => void;
 }
 
@@ -161,12 +161,12 @@ function target(
   condition: WeatherCondition,
   night: boolean,
   cloudCover: number | undefined,
-  style: SkyStyle,
+  style: BackdropStyle,
 ): SkyState {
   const { palette, coverage, wispy, stars, mist, sun, reach, drift } = lookFor(condition);
   const time = night ? 'night' : 'day';
   const colors: Colors4 =
-    style === 'full' ? SKIES[palette][time] : ['#000000', '#000000', ...TONES[palette][time]];
+    style === 'sky' ? SKIES[palette][time] : ['#000000', '#000000', ...TONES[palette][time]];
   const [top, bottom, cloudLight, cloudShadow] = colors.map(hex) as [Vec3, Vec3, Vec3, Vec3];
   const cover =
     cloudCover !== undefined &&
@@ -322,7 +322,7 @@ export function createSkyRenderer(
     onRestored,
   }: SkyRendererOptions = {},
 ): SkyRenderer {
-  const opaque = style === 'full';
+  const opaque = style === 'sky';
   const context = canvas.getContext('webgl2', {
     alpha: !opaque,
     premultipliedAlpha: true,
@@ -373,14 +373,14 @@ export function createSkyRenderer(
   };
 }
 
-// Without WebGL2: the full style keeps its gradient; clouds style draws nothing.
+// Without WebGL2: the sky style keeps its gradient; clouds style draws nothing.
 function createGradientSky(canvas: HTMLCanvasElement, opaque: boolean): SkyRenderer {
   const ctx = canvas.getContext('2d');
   let width = 1,
     height = 1;
   return {
     backend: 'canvas',
-    style: opaque ? 'full' : 'clouds',
+    style: opaque ? 'sky' : 'clouds',
     available: !!ctx,
     resize(w, h) {
       width = w;

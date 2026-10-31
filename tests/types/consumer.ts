@@ -2,10 +2,12 @@
 import * as THREE from 'three';
 import {
   createWeatherEffects,
-  createSimulation,
   createGlassDroplets,
   CONDITIONS,
   isCondition,
+} from '../../dist/index.js';
+import {
+  createSimulation,
   isRain,
   isSnow,
   isFrozen,
@@ -16,7 +18,7 @@ import {
   hash32,
   particleRandom,
   particleVariant,
-} from '../../dist/index.js';
+} from '../../dist/advanced.js';
 import type {
   WeatherEffects,
   WeatherEffectsOptions,
@@ -26,12 +28,12 @@ import type {
   Point,
   BackgroundSource,
   BackgroundPainter,
-  Simulation,
   GlassDroplets,
 } from '../../dist/index.js';
+import type { Simulation } from '../../dist/advanced.js';
 
 const canvas = document.querySelector('canvas.weather') as HTMLCanvasElement;
-const options: WeatherEffectsOptions = { canvas, THREE, seed: 1 };
+const options: WeatherEffectsOptions = { canvas, three: THREE, seed: 1 };
 const effects: WeatherEffects = createWeatherEffects(options);
 effects.resize(innerWidth, innerHeight);
 effects.setSurfaces(() =>

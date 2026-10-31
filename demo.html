@@ -77,9 +77,9 @@ let night = params.get('night') !== '0';
 
 const effects = createWeatherEffects({
   canvas: document.querySelector('canvas.weather'),
-  skyCanvas: document.querySelector('canvas.sky'),
-  skyStyle: 'full',
-  THREE
+  backdropCanvas: document.querySelector('canvas.sky'),
+  backdropStyle: 'sky',
+  three: THREE
 });
 effects.resize(innerWidth, innerHeight);
 effects.setSurfaces(() => [...document.querySelectorAll('.card')].map(card => {
