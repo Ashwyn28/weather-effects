@@ -28,8 +28,10 @@ export type {
 export type { GlassDroplets, GlassDropletsOptions, ReducedMotion } from './glass.js';
 export type { BackdropStyle } from './sky.js';
 
+/** Surfaces for {@link WeatherEffects.setSurfaces}: a list, a function called lazily for a fresh list, or `null` for none. */
 export type SurfaceSource = Surface[] | (() => Surface[]) | null;
 
+/** Options for {@link createWeatherEffects}. */
 export interface WeatherEffectsOptions {
   /** Transparent overlay above the content (pointer-events: none). */
   canvas: HTMLCanvasElement;
@@ -44,9 +46,9 @@ export interface WeatherEffectsOptions {
   three?: typeof ThreeNS;
   /** Seed for particle randomness. Default 0. */
   seed?: number;
-  /** Default true. */
+  /** Start animating immediately. Default `true`. */
   autoplay?: boolean;
-  /** Default min(devicePixelRatio, 2). */
+  /** Device pixels per CSS pixel. Default `min(devicePixelRatio, 2)`. */
   pixelRatio?: number;
   /** Default matchMedia('(prefers-reduced-motion: reduce)'). Pass null to ignore. */
   reducedMotion?: ReducedMotion | null;
@@ -54,38 +56,85 @@ export interface WeatherEffectsOptions {
   saveData?: boolean;
 }
 
+/** A running weather layer returned by {@link createWeatherEffects}. */
 export interface WeatherEffects {
   /** The canvas in use. Differs from the one passed when WebGL failed and a fallback canvas replaced it. */
   readonly canvas: HTMLCanvasElement;
+  /** The overlay renderer in use: WebGL via Three.js or the 2D fallback. */
   readonly backend: 'threejs' | 'canvas';
   /** null without backdropCanvas. */
   readonly backdropBackend: 'webgl2' | 'canvas' | null;
+  /** Whether the animation is running. */
   readonly playing: boolean;
+  /** The active weather condition. */
   readonly condition: WeatherCondition;
   /** Simulated seconds. */
   readonly time: number;
+  /** The underlying particle simulation, for advanced inspection. */
   readonly simulation: Simulation;
+  /**
+   * Changes the weather.
+   *
+   * @param condition - The condition to show.
+   * @param options - `night` selects the night look (default keeps the current value, initially `false`); `reading` supplies live measurements such as wind and cloud cover (default none).
+   * @throws RangeError if `condition` is not a known {@link WeatherCondition}.
+   *
+   * @example
+   * effects.setWeather('snow', { night: true, reading: { windSpeed: 12, cloudCover: 80 } });
+   */
   setWeather(
     condition: WeatherCondition,
     options?: { night?: boolean; reading?: WeatherReading },
   ): void;
-  /** Functions are called lazily, at most once per frame after invalidate(). Clears settled snow by default. */
+  /**
+   * Sets the surfaces rain splashes on and snow settles on. Functions are
+   * called lazily, at most once per frame after `invalidate()`.
+   *
+   * @param source - Surfaces in CSS px, a function returning them, or `null` for none.
+   * @param options - `clearDeposits` removes settled snow. Default `true`.
+   */
   setSurfaces(source: SurfaceSource, options?: { clearDeposits?: boolean }): void;
   /**
-   * Used for droplet refraction and frost (WebGL only). Functions are repainted after invalidate() or a weather change.
-   * dropSize: CSS px per drop-grid unit (default 750); smaller gives smaller, denser drops for small targets.
+   * Sets the background used for droplet refraction and frost (WebGL only).
+   * Functions are repainted after `invalidate()` or a weather change.
+   *
+   * @param source - A drawable, a painter function, or `null` to clear.
+   * @param options - `dropSize` is CSS px per drop-grid unit (default 750).
    */
   setBackground(source: BackgroundSource, options?: BackgroundOptions): void;
-  /** Pass null to clear. Snow and leaves move away from the pointer. */
+  /**
+   * Sets the pointer position; snow and leaves move away from it.
+   *
+   * @param x - Horizontal position in CSS px, or `null` to clear.
+   * @param y - Vertical position in CSS px. Required unless `x` is `null`.
+   */
   setPointer(x: number | null, y?: number): void;
-  /** Re-read surfaces and repaint the background before the next frame. */
+  /**
+   * Re-reads surfaces and repaints the background before the next frame.
+   *
+   * @param options - `clearDeposits` removes settled snow. Default `false`.
+   */
   invalidate(options?: { clearDeposits?: boolean }): void;
+  /** Starts or resumes the animation. */
   play(): void;
+  /** Pauses the animation and draws a still frame. */
   pause(): void;
-  /** Replays from the seed at a fixed 30 fps step and draws that frame. */
+  /**
+   * Replays from the seed at a fixed 30 fps step and draws that frame.
+   *
+   * @param seconds - Simulated time in seconds, at least 0.
+   * @throws RangeError if `seconds` is negative or not a number.
+   */
   seek(seconds: number): void;
-  /** Sizes are in CSS pixels. */
+  /**
+   * Sets the layer size.
+   *
+   * @param widthPx - Width in CSS px, greater than 0.
+   * @param heightPx - Height in CSS px, greater than 0.
+   * @throws RangeError if either size is not greater than 0.
+   */
   resize(widthPx: number, heightPx: number): void;
+  /** Stops the animation, removes listeners and frees renderer resources. Safe to call twice. */
   dispose(): void;
 }
 
@@ -348,6 +397,19 @@ function createFx(
  * Pass `backdropCanvas`, placed behind the page content, to draw clouds, fog,
  * stars and sun glow there so text stays crisp above them. `backdropStyle: 'sky'`
  * also paints an opaque sky gradient, like a weather app.
+ *
+ * @param options - Canvas and appearance options.
+ * @returns The running weather layer.
+ * @throws RangeError if `backdropStyle` is not `'clouds'` or `'sky'`.
+ * @throws TypeError if `canvas` is missing.
+ *
+ * @example
+ * import * as THREE from 'three';
+ * const effects = createWeatherEffects({
+ *   canvas: document.querySelector('#weather'),
+ *   three: THREE,
+ * });
+ * effects.setWeather('rain');
  */
 export function createWeatherEffects({
   canvas,

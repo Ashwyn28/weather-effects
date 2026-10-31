@@ -6,12 +6,13 @@ import type { Surface, WeatherReading } from './physics.js';
 /** Where `attachWeather` finds surfaces for rain to splash on and snow to settle on. */
 export type SurfacesOption = string | Element[] | (() => Surface[]);
 
+/** Options for {@link attachWeather}. */
 export interface AttachWeatherOptions {
   /** Element the weather covers. Default `document.body`. */
   target?: HTMLElement;
   /** Initial condition. Default `'clear'`. */
   condition?: WeatherCondition;
-  /** Default false. */
+  /** Whether to use the night look. Default `false`. */
   night?: boolean;
   /** Live readings such as wind and cloud cover. */
   reading?: WeatherReading;
@@ -30,17 +31,21 @@ export interface AttachWeatherOptions {
   pointer?: boolean;
   /** Seed for particle randomness. Default 0. */
   seed?: number;
-  /** Default true. */
+  /** Start animating immediately. Default `true`. */
   autoplay?: boolean;
   /** z-index of the overlay canvas. Default 20. */
   zIndex?: number;
 }
 
+/** Handle returned by {@link attachWeather}. */
 export interface AttachedWeather {
   /** The underlying effects, for `seek`, `setBackground` and the rest. */
   readonly effects: WeatherEffects;
+  /** Changes the condition; see {@link WeatherEffects.setWeather}. */
   setWeather: WeatherEffects['setWeather'];
+  /** Starts or resumes the animation. */
   play(): void;
+  /** Pauses the animation and draws a still frame. */
   pause(): void;
   /** Re-read surfaces before the next frame. Clears settled snow by default. */
   invalidate: WeatherEffects['invalidate'];
@@ -79,6 +84,9 @@ function styleCanvas(canvas: HTMLCanvasElement, css: Record<string, string>) {
  * viewport, `pointer-events: none`) and, by default, a backdrop canvas behind
  * the content that scrolls with the page. Wires resize, scroll, observers and
  * mouse movement. Call `destroy()` to undo everything.
+ *
+ * @param options - Setup options; all are optional.
+ * @returns A handle to change the weather and tear everything down.
  *
  * @example
  * const weather = attachWeather({ condition: 'rain', surfaces: 'h1, h2, .card', three });

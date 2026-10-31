@@ -4,18 +4,35 @@ import { isRain } from './conditions.js';
 import type { WeatherCondition } from './conditions.js';
 import { PROFILES } from './profiles.js';
 
+/** Passed to a {@link BackgroundPainter}. */
 export interface BackgroundInfo {
+  /** Width to paint, in CSS px. */
   width: number;
+  /** Height to paint, in CSS px. */
   height: number;
+  /** Whether the scene is currently at night. */
   night: boolean;
 }
-/** Paint in CSS pixels. Transparent areas receive no droplets or frost. */
+/**
+ * Paints the scene seen through the droplets, in CSS pixels. Transparent areas
+ * receive no droplets or frost.
+ *
+ * @param ctx - 2D context to paint into.
+ * @param info - Size and night state.
+ * @returns Optionally `{ color }`, a CSS colour that replaces the default page colour behind transparent areas.
+ */
 export type BackgroundPainter = (
   ctx: CanvasRenderingContext2D,
   info: BackgroundInfo,
-) => { color?: string } | void; // eslint-disable-line @typescript-eslint/no-invalid-void-type -- painters may return nothing
+) => {
+  /** CSS colour shown behind transparent areas. Default is a light or dark page colour by `night`. */
+  color?: string;
+} | void; // eslint-disable-line @typescript-eslint/no-invalid-void-type -- painters may return nothing
+/** What droplets refract: a drawable image or canvas, a {@link BackgroundPainter}, or `null` for none. */
 export type BackgroundSource = CanvasImageSource | BackgroundPainter | null;
+/** Options for setting a background. */
 export interface BackgroundOptions {
+  /** CSS px per drop-grid unit; smaller values give smaller, denser drops for small targets. Default 750. */
   dropSize?: number;
 }
 

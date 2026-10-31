@@ -12,6 +12,7 @@ import { buildProgram } from './gl.js';
 import { SKY_FRAGMENT, SKY_VERTEX } from './shaders/sky.js';
 import type { ConditionProfile, SkyPalette, SkyProfile } from './profiles.js';
 
+/** `'clouds'`: transparent backdrop with clouds, fog and stars only. `'sky'`: also an opaque sky gradient. */
 export type BackdropStyle = 'clouds' | 'sky';
 
 export interface SkyFrame {
