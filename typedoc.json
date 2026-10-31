@@ -1,0 +1,6 @@
+{
+  "entryPoints": ["src/index.ts", "src/advanced.ts"],
+  "tsconfig": "tsconfig.json",
+  "validation": { "notDocumented": true },
+  "treatWarningsAsErrors": true
+}

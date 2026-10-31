@@ -13,32 +13,75 @@ import type { BackgroundSource } from './refraction.js';
 
 /** A MediaQueryList, or any object with `matches` and optional change listeners. */
 export interface ReducedMotion {
+  /** Whether reduced motion is currently requested. */
   readonly matches: boolean;
+  /**
+   * Subscribes to changes of `matches`.
+   *
+   * @param type - Always `'change'`.
+   * @param listener - Called when `matches` changes.
+   */
   addEventListener?(type: 'change', listener: () => void): void;
+  /**
+   * Unsubscribes a listener added with `addEventListener`.
+   *
+   * @param type - Always `'change'`.
+   * @param listener - The listener to remove.
+   */
   removeEventListener?(type: 'change', listener: () => void): void;
 }
 
+/** Options for {@link createGlassDroplets}. */
 export interface GlassDropletsOptions {
   /** The element to draw on (sized by CSS). */
   canvas: HTMLCanvasElement;
   /** CSS pixels per drop-grid unit; small panes want small values. Default 90. */
   dropSize?: number;
+  /** Seed for the drop pattern. Default 7. */
   seed?: number;
-  /** 'inside' (drops on the near surface) or 'outside' (rain on a window, seen through the glass). */
+  /** 'inside' (drops on the near surface) or 'outside' (rain on a window, seen through the glass). Default `'inside'`. */
   side?: 'inside' | 'outside';
+  /** Device pixels per CSS pixel. Default `min(devicePixelRatio, 2)`. */
   pixelRatio?: number;
+  /** Freezes the animation while `matches` is true. Default `matchMedia('(prefers-reduced-motion: reduce)')`; pass `null` to ignore. */
   reducedMotion?: ReducedMotion | null;
 }
 
+/** Water drops and frost on a pane of glass, drawn on the caller's canvas. */
 export interface GlassDroplets {
+  /** The rendering backend; always `'webgl2'`. */
   readonly backend: 'webgl2';
+  /**
+   * Sets the weather that drives rain and frost on the glass.
+   *
+   * @param condition - The weather condition.
+   * @param options - `night` selects the night look. Default keeps the current value (initially `false`).
+   *
+   * @example
+   * glass.setWeather('rain', { night: true });
+   */
   setWeather(condition: WeatherCondition, options?: { night?: boolean }): void;
-  /** A drawable, or a function (ctx, { width, height, night }) painting in CSS pixels. */
+  /**
+   * Sets what is seen through the glass: a drawable, or a function
+   * `(ctx, { width, height, night })` painting in CSS pixels.
+   *
+   * @param source - The background, or `null` for none.
+   */
   setBackground(source: BackgroundSource): void;
+  /** Repaints the background before the next frame; call after the source changes. */
   invalidate(): void;
+  /**
+   * Sets the pane size.
+   *
+   * @param width - Width in CSS px (at least 1).
+   * @param height - Height in CSS px (at least 1).
+   */
   resize(width: number, height: number): void;
+  /** Starts or resumes the animation. */
   play(): void;
+  /** Pauses the animation and draws a still frame. */
   pause(): void;
+  /** Stops the animation and frees the GL resources. Safe to call twice. */
   dispose(): void;
 }
 
@@ -310,10 +353,21 @@ function listen(g: Glass): () => void {
 }
 
 /**
- * canvas: the element to draw on (sized by CSS). dropSize: CSS pixels per
- * drop-grid unit; small panes want small values. side: 'inside' (drops on the
- * near surface) or 'outside' (rain on a window, seen through the glass).
- * Returns null without WebGL2.
+ * Draws water drops and frost on a small pane of glass, independent of the
+ * page weather layer and of Three.js. It takes over the canvas's WebGL2 context.
+ *
+ * @param options - Canvas and appearance options.
+ * @returns The controller, or `null` when the canvas cannot provide WebGL2.
+ *
+ * @example
+ * const glass = createGlassDroplets({ canvas: document.querySelector('#window'), side: 'outside' });
+ * if (glass) {
+ *   glass.setBackground((ctx, { width, height }) => {
+ *     ctx.fillStyle = '#6a8caf';
+ *     ctx.fillRect(0, 0, width, height);
+ *   });
+ *   glass.setWeather('rain');
+ * }
  */
 export function createGlassDroplets(options: GlassDropletsOptions): GlassDroplets | null {
   const context = options.canvas.getContext('webgl2', {

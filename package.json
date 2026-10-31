@@ -42,7 +42,8 @@
     "prepare": "npm run build",
     "test": "npm run build && node --test tests/*.test.mjs",
     "demo": "python3 -m http.server 8000 --bind 127.0.0.1",
-    "lint": "eslint . && prettier --check .",
+    "lint": "eslint . && prettier --check . && npm run docs:check",
+    "docs:check": "node --import ./typedoc.ts6-shim.mjs node_modules/typedoc/bin/typedoc --emit none",
     "format": "prettier --write . && eslint --fix ."
   },
   "engines": {
@@ -67,6 +68,7 @@
     "happy-dom": "^21.0.4",
     "prettier": "^3.9.10",
     "three": "^0.186.1",
+    "typedoc": "^0.28.20",
     "typescript": "^7.0.2",
     "typescript-eslint": "^8.72.1"
   }

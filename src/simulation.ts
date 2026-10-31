@@ -5,63 +5,126 @@ import { isRain, isSnow, hasPrecipitation } from './conditions.js';
 import type { WeatherCondition } from './conditions.js';
 import { PROFILES } from './profiles.js';
 
+/** One falling particle: a raindrop, snowflake, hailstone or leaf. */
 export interface Particle {
+  /** Horizontal position in CSS px. */
   x: number;
+  /** Vertical position in CSS px. */
   y: number;
+  /** Horizontal velocity in CSS px per second. */
   vx: number;
+  /** Vertical velocity in CSS px per second; positive falls. */
   vy: number;
+  /** Radius or width in CSS px. */
   size: number;
+  /** Per-particle phase offset in radians. */
   phase: number;
+  /** Distance from the viewer, 0 (far) to 1 (near). */
   depth: number;
+  /** Whether a hail particle has already bounced. */
   bounced: boolean;
-  /** Wind (leaf) particles. */
+  /** Leaf tumble angle in radians. Wind (leaf) particles only. */
   flip?: number;
+  /** Leaf spin rate in radians per second. Wind (leaf) particles only. */
   spin?: number;
+  /** Leaf colour variant, 0–1. Wind (leaf) particles only. */
   hue?: number;
-  /** Snow particles. */
+  /** Snow sway rate multiplier. Snow particles only. */
   sway?: number;
+  /** Snow sideways drift amplitude in CSS px. Snow particles only. */
   drift?: number;
 }
 
+/** A splash ring where a raindrop landed on a surface. */
 export interface Impact {
+  /** Horizontal position in CSS px. */
   x: number;
+  /** Vertical position in CSS px. */
   y: number;
+  /** Direction of the surface edge in radians. */
   angle: number;
+  /** Remaining life, from 1 (new) to 0 (gone). */
   life: number;
 }
 
+/** A small drop thrown up by a splash. */
 export interface Droplet {
+  /** Horizontal position in CSS px. */
   x: number;
+  /** Vertical position in CSS px. */
   y: number;
+  /** Horizontal velocity in CSS px per second. */
   vx: number;
+  /** Vertical velocity in CSS px per second; positive falls. */
   vy: number;
+  /** Radius in CSS px. */
   size: number;
+  /** Remaining life, from 1 (new) to 0 (gone). */
   life: number;
 }
 
+/** Snow settled on a surface. Inherits its position and surface from {@link SurfaceHit}. */
 export interface Deposit extends SurfaceHit {
+  /** Radius in CSS px; grows as more snow lands nearby. */
   size: number;
+  /** Remaining life, from 1 (fresh) to 0 (melted). */
   life: number;
 }
 
+/** Inputs for one {@link Simulation.step}. */
 export interface StepOptions {
+  /** Surfaces that rain splashes on and snow settles on. Default none. */
   surfaces?: readonly Surface[];
+  /** Pointer position in CSS px that stirs snow and leaves. Default `null` (none). */
   pointer?: Point | null;
+  /** Halves particle counts. Default `false`. */
   saveData?: boolean;
 }
 
+/** DOM-free particle state that advances in fixed or variable time steps. */
 export interface Simulation {
+  /** The active weather condition. */
   readonly condition: WeatherCondition;
+  /** Simulated time since the last reset, in seconds. */
   readonly elapsed: number;
+  /** Current horizontal wind in CSS px per second; negative blows left. */
   readonly wind: number;
+  /** Live falling particles. */
   readonly particles: Particle[];
+  /** Live splash rings. */
   readonly impacts: Impact[];
+  /** Live splash droplets. */
   readonly droplets: Droplet[];
+  /** Snow settled on surfaces. */
   readonly deposits: Deposit[];
+  /**
+   * Switches condition and clears the particles.
+   *
+   * @param next - The new condition.
+   * @param nextReading - Live measurements. Default none.
+   */
   setCondition(next: WeatherCondition, nextReading?: WeatherReading | null): void;
+  /**
+   * Sets the viewport size. A height-only change keeps the particles; a new width redistributes them.
+   *
+   * @param w - Width in CSS px.
+   * @param h - Height in CSS px.
+   */
   resize(w: number, h: number): void;
+  /** Removes all settled snow. */
   clearDeposits(): void;
+  /**
+   * Restarts the simulation from time zero.
+   *
+   * @param nextSeed - New seed. Default keeps the current seed.
+   */
   reset(nextSeed?: number): void;
+  /**
+   * Advances the simulation.
+   *
+   * @param dt - Time step in seconds. Use 0 to populate the first frame without moving.
+   * @param options - Surfaces, pointer and data-saver mode.
+   */
   step(dt: number, options?: StepOptions): void;
 }
 
@@ -330,8 +393,22 @@ function reset(s: SimState, seed: number) {
   s.wind = windAt(s.reading, s.condition, 0);
 }
 
-// DOM-free particle state. Positions are CSS pixels in the caller's viewport.
-// Given the same seed, surfaces and time steps, the output is deterministic.
+/**
+ * Creates a DOM-free particle simulation. Positions are CSS pixels in the
+ * caller's viewport. Given the same seed, surfaces and time steps, the output
+ * is deterministic.
+ *
+ * @param options - Simulation options.
+ * @param options.seed - Seed for particle randomness. Default 0.
+ * @returns A new {@link Simulation}, initially `'clear'`.
+ *
+ * @example
+ * const sim = createSimulation({ seed: 1 });
+ * sim.resize(800, 600);
+ * sim.setCondition('rain');
+ * sim.step(1 / 30);
+ * console.log(sim.particles.length);
+ */
 export function createSimulation({ seed = 0 }: { seed?: number } = {}): Simulation {
   const s: SimState = {
     serial: seed,
