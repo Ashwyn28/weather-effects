@@ -141,14 +141,38 @@ test('effects API drives the canvas fallback, seeks deterministically and valida
     assert.equal(effects.backend, 'canvas');
     assert.equal(canvas.dataset.renderer, 'canvas');
     assert.equal(CONDITIONS.length, 15);
-    assert.throws(() => effects.setWeather('sleet'), RangeError);
+    assert.throws(
+      () => effects.setWeather('sleet'),
+      new RangeError(
+        `Unknown weather condition "sleet". Expected one of: ${CONDITIONS.join(', ')}`,
+      ),
+    );
+    assert.throws(
+      () => effects.resize(0, 10),
+      new RangeError('resize: "widthPx" and "heightPx" must be numbers > 0. Received 0 and 10.'),
+    );
+    assert.throws(
+      () => createWeatherEffects({ canvas, backdropStyle: 'full' }),
+      new RangeError(
+        'createWeatherEffects: option "backdropStyle" must be one of: clouds, sky. Received "full".',
+      ),
+    );
+    assert.throws(
+      () => createWeatherEffects({}),
+      new TypeError(
+        'createWeatherEffects: option "canvas" is required. Expected an HTMLCanvasElement.',
+      ),
+    );
     effects.setWeather('snow', { night: true });
     effects.seek(2);
     const first = JSON.stringify(effects.simulation.particles);
     effects.seek(2);
     assert.equal(JSON.stringify(effects.simulation.particles), first);
     assert.ok(calls.includes('arc'));
-    assert.throws(() => effects.seek(-1), RangeError);
+    assert.throws(
+      () => effects.seek(-1),
+      new RangeError('seek: "seconds" must be a number >= 0. Received -1.'),
+    );
     effects.dispose();
   } finally {
     globalThis.requestAnimationFrame = raf;
@@ -183,11 +207,11 @@ test('backdrop falls back to 2D without WebGL2: full style paints a gradient, cl
   try {
     const full = createWeatherEffects({
       canvas: canvas(),
-      skyCanvas: canvas(),
-      skyStyle: 'full',
+      backdropCanvas: canvas(),
+      backdropStyle: 'sky',
       autoplay: false,
     });
-    assert.equal(full.skyBackend, 'canvas');
+    assert.equal(full.backdropBackend, 'canvas');
     fills.length = 0;
     full.setWeather('clear', { night: true });
     assert.ok(fills.includes('#11142e'));
@@ -195,7 +219,11 @@ test('backdrop falls back to 2D without WebGL2: full style paints a gradient, cl
     full.setWeather('rain', { night: false });
     assert.ok(fills.includes('#3d4955'));
     full.dispose();
-    const clouds = createWeatherEffects({ canvas: canvas(), skyCanvas: canvas(), autoplay: false });
+    const clouds = createWeatherEffects({
+      canvas: canvas(),
+      backdropCanvas: canvas(),
+      autoplay: false,
+    });
     fills.length = 0;
     clears.length = 0;
     clouds.setWeather('rain');
@@ -259,4 +287,28 @@ test('particle counts per condition are pinned at phone and desktop sizes', asyn
     });
     assert.deepEqual(counts, expected[id] ?? [0, 0], id);
   }
+});
+
+test('main entry exports only the public API; advanced holds the rest', async () => {
+  const main = await import('../dist/index.js');
+  assert.deepEqual(Object.keys(main).sort(), [
+    'CONDITIONS',
+    'createGlassDroplets',
+    'createWeatherEffects',
+    'isCondition',
+  ]);
+  const advanced = await import('../dist/advanced.js');
+  assert.deepEqual(Object.keys(advanced).sort(), [
+    'createSimulation',
+    'hasPrecipitation',
+    'hash32',
+    'isFrozen',
+    'isRain',
+    'isSnow',
+    'particleRandom',
+    'particleVariant',
+    'settleSnow',
+    'surfaceHit',
+    'windAt',
+  ]);
 });
