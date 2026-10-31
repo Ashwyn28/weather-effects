@@ -50,4 +50,4 @@ export const ATMOSPHERE_FRAGMENT = `varying vec2 vUv; uniform float time, kind, 
         color=mix(color,vec3(.85,.9,1.0),flash);
         gl_FragColor = vec4(color,min(.5,alpha * strength + flash*.07));
         #include <colorspace_fragment>
-      `;
+      }`;
