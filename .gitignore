@@ -4,3 +4,5 @@ dist/
 site/
 docs/api/
 docs/.vitepress/cache/
+test-results/
+playwright-report/

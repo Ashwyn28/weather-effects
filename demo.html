@@ -74,12 +74,18 @@ const labels = { 'clear': 'Clear', 'mainly-clear': 'Mostly Clear', 'partly-cloud
 const params = new URLSearchParams(location.search);
 let condition = CONDITIONS.includes(params.get('weather')) ? params.get('weather') : 'rain';
 let night = params.get('night') !== '0';
+// ?seed=, ?t= and ?paused=1 render a deterministic frame: seek(t) with the seed, then pause.
+const seed = Number(params.get('seed')) || 0;
+const seekTo = Number(params.get('t')) || 0;
+const startPaused = params.get('paused') === '1';
 
 const effects = createWeatherEffects({
   canvas: document.querySelector('canvas.weather'),
   backdropCanvas: document.querySelector('canvas.sky'),
   backdropStyle: 'sky',
-  three: THREE
+  three: THREE,
+  seed,
+  autoplay: !startPaused
 });
 effects.resize(innerWidth, innerHeight);
 effects.setSurfaces(() => [...document.querySelectorAll('.card')].map(card => {
@@ -115,5 +121,12 @@ addEventListener('resize', () => effects.resize(innerWidth, innerHeight));
 addEventListener('scroll', () => effects.invalidate({ clearDeposits: true }), { passive: true });
 addEventListener('pointermove', event => effects.setPointer(event.clientX, event.clientY), { passive: true });
 apply();
+if (startPaused) {
+  effects.seek(seekTo);
+  effects.pause();
+  document.getElementById('pause').setAttribute('aria-pressed', 'true');
+  document.getElementById('pause').textContent = 'Play';
+  document.documentElement.dataset.ready = '1';
+}
 window.effects = effects;
 </script>
