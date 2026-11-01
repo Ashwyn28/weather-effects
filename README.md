@@ -5,7 +5,7 @@ Rain, snow, hail, fog and clouds that fall over your web page, splash on your he
 [![npm version](https://img.shields.io/npm/v/weather-effects)](https://www.npmjs.com/package/weather-effects)
 [![CI](https://github.com/Ashwyn28/weather-effects/actions/workflows/ci.yml/badge.svg)](https://github.com/Ashwyn28/weather-effects/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![bundle size](https://img.shields.io/badge/bundle%20size-TBD-lightgrey)](#install)
+[![bundle size](https://img.shields.io/badge/bundle%20size-18.3%20kB-brightgreen)](#install)
 
 ![Rain over the weather-effects demo page](docs/assets/hero.png)
 

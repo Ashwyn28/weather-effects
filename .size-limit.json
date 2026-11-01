@@ -1,0 +1,16 @@
+[
+  {
+    "name": "main entry",
+    "path": "dist/index.js",
+    "import": "*",
+    "ignore": ["three"],
+    "limit": "21 KB"
+  },
+  {
+    "name": "advanced entry",
+    "path": "dist/advanced.js",
+    "import": "*",
+    "ignore": ["three"],
+    "limit": "4 KB"
+  }
+]
