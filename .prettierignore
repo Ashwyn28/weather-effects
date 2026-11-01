@@ -3,3 +3,5 @@ site/
 package-lock.json
 node_modules/
 demo.html
+docs/api/
+docs/.vitepress/cache/

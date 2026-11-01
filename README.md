@@ -131,7 +131,7 @@ glass.setWeather('rain', { night: false });
 | `CONDITIONS`, `isCondition(id)` | The condition ids and a type guard.                                                                                                                          |
 | `weather-effects/advanced`      | `createSimulation`, `windAt`, `surfaceHit`, `settleSnow`, `hash32`, `particleRandom`, `particleVariant`, `isRain`, `isSnow`, `isFrozen`, `hasPrecipitation`. |
 
-Types ship in `dist/*.d.ts` with TSDoc on every export. Mapping API data (for example WMO codes) to condition ids is the caller's job. A full API reference will be published on the docs site.
+Types ship in `dist/*.d.ts` with TSDoc on every export. Mapping API data (for example WMO codes) to condition ids is the caller's job. The guides and a generated API reference live on the docs site (`npm run docs:build` builds it into `site/`).
 
 ## Browser support
 

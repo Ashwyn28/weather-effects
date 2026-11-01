@@ -11,6 +11,7 @@ All notable changes to this project are documented here. The format follows
 - `attachWeather`: one-call setup that creates the canvases, resolves surfaces and wires resize, scroll, mutation and pointer handling.
 - A single `PROFILES` table holding the per-condition settings.
 - TSDoc for every public export, enforced by typedoc (`npm run docs:check`).
+- Documentation site (VitePress, `npm run docs:build`) with guides, framework recipes and a generated API reference; `scripts/conditions.mjs` regenerates the condition images.
 - README rewrite, hero image (`scripts/hero.mjs`), `CHANGELOG.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md` and `SECURITY.md`.
 
 ### Changed
