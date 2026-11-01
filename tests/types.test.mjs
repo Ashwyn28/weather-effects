@@ -54,3 +54,15 @@ test('dist type-checks the README code examples', () => {
     assert.fail(`${error.stdout}${error.stderr}`);
   }
 });
+
+test('docs recipe snippets type-check against dist', () => {
+  assert.ok(existsSync(`${root}dist/index.d.ts`), 'run npm run build first');
+  try {
+    execFileSync(process.execPath, [tsc, '-p', `${root}docs/snippets/tsconfig.json`], {
+      encoding: 'utf8',
+      stdio: 'pipe',
+    });
+  } catch (error) {
+    assert.fail(`${error.stdout}${error.stderr}`);
+  }
+});

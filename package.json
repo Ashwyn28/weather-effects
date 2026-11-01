@@ -44,7 +44,11 @@
     "demo": "python3 -m http.server 8000 --bind 127.0.0.1",
     "lint": "eslint . && prettier --check . && npm run docs:check",
     "docs:check": "node --import ./typedoc.ts6-shim.mjs node_modules/typedoc/bin/typedoc --emit none",
-    "format": "prettier --write . && eslint --fix ."
+    "format": "prettier --write . && eslint --fix .",
+    "docs:api": "node --import ./typedoc.ts6-shim.mjs node_modules/typedoc/bin/typedoc --options typedoc.docs.json",
+    "docs:build": "npm run docs:api && vitepress build docs",
+    "docs:dev": "npm run docs:api && vitepress dev docs",
+    "docs:preview": "vitepress preview docs"
   },
   "engines": {
     "node": ">=18"
@@ -60,6 +64,7 @@
   "private": true,
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@types/react": "^19.3.0",
     "@types/three": "^0.186.0",
     "@typescript/typescript6": "^6.0.2",
     "eslint": "^10.13.0",
@@ -68,9 +73,14 @@
     "happy-dom": "^21.0.4",
     "playwright-core": "^1.64.1",
     "prettier": "^3.9.10",
+    "react": "^19.3.1",
+    "svelte": "^5.57.3",
     "three": "^0.186.1",
     "typedoc": "^0.28.20",
+    "typedoc-plugin-markdown": "^4.14.1",
     "typescript": "^7.0.2",
-    "typescript-eslint": "^8.72.1"
+    "typescript-eslint": "^8.72.1",
+    "vitepress": "^1.6.4",
+    "vue": "^3.5.44"
   }
 }
