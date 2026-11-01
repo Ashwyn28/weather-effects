@@ -51,7 +51,8 @@
     "docs:dev": "npm run docs:api && vitepress dev docs",
     "docs:preview": "vitepress preview docs",
     "size": "size-limit",
-    "check:package": "publint && attw --pack . --profile esm-only"
+    "check:package": "publint && attw --pack . --profile esm-only",
+    "test:browser": "playwright test"
   },
   "engines": {
     "node": ">=18"
@@ -67,6 +68,7 @@
   "devDependencies": {
     "@arethetypeswrong/cli": "^0.18.5",
     "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.64.1",
     "@size-limit/preset-small-lib": "^14.3.0",
     "@types/react": "^19.3.0",
     "@types/three": "^0.186.0",
